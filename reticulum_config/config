@@ -93,9 +93,9 @@
   # should be enabled by default in almost any OS. See
   # the Reticulum Manual for more configuration options.
   
-[[Default Interface]]
-  type = AutoInterface
-  enabled = yes
+# [[Default Interface]]
+#   type = AutoInterface
+#   enabled = yes
 
 # This example demonstrates a TCP server interface.
 # It will listen for incoming connections on all IP
@@ -105,3 +105,16 @@
 #   enabled = yes
 #   listen_ip = 0.0.0.0
 #   listen_port = 4242
+[[Default Interface]]
+  type = AutoInterface
+  enabled = yes
+
+  # Configure global discovery
+
+  group_id = custom_network_name
+  discovery_scope = global
+
+  # Other configuration options
+
+  discovery_port = 48555
+  data_port = 49555
