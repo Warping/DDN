@@ -20,8 +20,11 @@ fruits = ["Peach", "Quince", "Date", "Tangerine", "Pomelo", "Carambola", "Grape"
 noble_gases = ["Helium", "Neon", "Argon", "Krypton", "Xenon", "Radon", "Oganesson"]
 
 # This initialisation is executed when the program is started
-def program_setup(configpath):
+def program_setup():
     # We must first initialise Reticulum
+    # configpath should be ".\config" on Windows
+    # and "./config" on Linux and macOS
+    configpath = "./reticulum_config"
     reticulum = RNS.Reticulum(configpath)
     
     # Randomly create a new identity for our example
@@ -149,26 +152,8 @@ class ExampleAnnounceHandler:
 # the desired program mode.
 if __name__ == "__main__":
     try:
-        parser = argparse.ArgumentParser(
-            description="Reticulum example that demonstrates announces and announce handlers"
-        )
 
-        parser.add_argument(
-            "--config",
-            action="store",
-            default=None,
-            help="path to alternative Reticulum config directory",
-            type=str
-        )
-
-        args = parser.parse_args()
-
-        if args.config:
-            configarg = args.config
-        else:
-            configarg = None
-
-        program_setup(configarg)
+        program_setup()
 
     except KeyboardInterrupt:
         print("")
