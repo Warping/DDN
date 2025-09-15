@@ -1,0 +1,7 @@
+cffi==2.0.0
+cryptography==45.0.7
+pycparser==2.23
+pyserial==3.5
+PyYAML==6.0.2
+reticulum==0.4.5
+rns==1.0.0
