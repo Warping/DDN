@@ -22,9 +22,7 @@ noble_gases = ["Helium", "Neon", "Argon", "Krypton", "Xenon", "Radon", "Oganesso
 # This initialisation is executed when the program is started
 def program_setup():
     # We must first initialise Reticulum
-    # configpath should be ".\config" on Windows
-    # and "./config" on Linux and macOS
-    configpath = "./reticulum_config"
+    configpath = "./.reticulum_config"
     reticulum = RNS.Reticulum(configpath)
     
     # Randomly create a new identity for our example
