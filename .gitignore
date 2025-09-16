@@ -1,2 +1,4 @@
 # Ignore Reticulum configuration files
 .reticulum_config
+__pycache__
+*.pyc
