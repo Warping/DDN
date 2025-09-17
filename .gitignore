@@ -2,3 +2,4 @@
 .reticulum_config
 __pycache__
 *.pyc
+.vscode/

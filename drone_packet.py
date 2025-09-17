@@ -56,3 +56,65 @@ class DronePacket:
         self.command(bh, drone_id, destination_id, current_state, "ACK", ack_info if ack_info else {})
         return bh.send_broadcast(self.to_json().encode('utf-8'))
     
+    def discovery_announce(self, bh : BroadcastHandler, drone_id, current_state, position=(0,0,0), battery_level=100.0, capabilities=None):
+        """Announce this drone's presence and capabilities to the network"""
+        params = {
+            "position": position,
+            "battery_level": battery_level,
+            "capabilities": capabilities if capabilities else [],
+            "discovery_time": time.time()
+        }
+        self.command(bh, drone_id, -1, current_state, "DISCOVERY_ANNOUNCE", params)
+        return bh.send_broadcast(self.to_json().encode('utf-8'))
+    
+    def discovery_response(self, bh : BroadcastHandler, drone_id, destination_id, current_state, position=(0,0,0), battery_level=100.0, capabilities=None):
+        """Respond to a discovery announcement"""
+        params = {
+            "position": position,
+            "battery_level": battery_level,
+            "capabilities": capabilities if capabilities else [],
+            "response_time": time.time()
+        }
+        self.command(bh, drone_id, destination_id, current_state, "DISCOVERY_RESPONSE", params)
+        return bh.send_broadcast(self.to_json().encode('utf-8'))
+    
+    def heartbeat(self, bh : BroadcastHandler, drone_id, current_state, position=(0,0,0), battery_level=100.0):
+        """Send heartbeat to maintain network presence"""
+        params = {
+            "position": position,
+            "battery_level": battery_level,
+            "heartbeat_time": time.time()
+        }
+        self.command(bh, drone_id, -1, current_state, "HEARTBEAT", params)
+        return bh.send_broadcast(self.to_json().encode('utf-8'))
+    
+    def network_status(self, bh : BroadcastHandler, drone_id, current_state, known_drones=None, master_id=None):
+        """Share network topology information"""
+        params = {
+            "known_drones": known_drones if known_drones else [],
+            "master_id": master_id,
+            "status_time": time.time()
+        }
+        self.command(bh, drone_id, -1, current_state, "NETWORK_STATUS", params)
+        return bh.send_broadcast(self.to_json().encode('utf-8'))
+    
+    def id_conflict_resolution(self, bh : BroadcastHandler, drone_id, destination_id, current_state, old_id, new_id):
+        """Announce ID conflict resolution"""
+        params = {
+            "old_id": old_id,
+            "new_id": new_id,
+            "resolution_time": time.time()
+        }
+        self.command(bh, drone_id, destination_id, current_state, "ID_CONFLICT_RESOLUTION", params)
+        return bh.send_broadcast(self.to_json().encode('utf-8'))
+    
+    def elect_master(self, bh : BroadcastHandler, drone_id, current_state, candidate_id, criteria=None):
+        """Participate in master election process"""
+        params = {
+            "candidate_id": candidate_id,
+            "criteria": criteria if criteria else {},
+            "election_time": time.time()
+        }
+        self.command(bh, drone_id, -1, current_state, "ELECT_MASTER", params)
+        return bh.send_broadcast(self.to_json().encode('utf-8'))
+    
