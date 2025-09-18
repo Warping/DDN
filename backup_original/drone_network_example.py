@@ -19,7 +19,7 @@ If no drone_id is provided, a random one will be generated.
 import sys
 import time
 import signal
-from enhanced_state_controller import EnhancedStateController
+from controllers.enhanced_state_controller import EnhancedStateController
 
 def signal_handler(sig, frame):
     """Handle Ctrl+C gracefully"""

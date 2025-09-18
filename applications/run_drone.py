@@ -3,10 +3,18 @@
 Simple drone runner for testing
 """
 
+
+# Add project root to Python path for imports
+import os
+import sys
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 import sys
 import time
-from enhanced_state_controller import EnhancedStateController
-from drone_state import DroneStatus
+from controllers.enhanced_state_controller import EnhancedStateController
+from core.drone_state import DroneStatus
 
 def main():
     drone_id = None

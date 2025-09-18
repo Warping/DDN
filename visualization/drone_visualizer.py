@@ -12,15 +12,21 @@ This visualizer operates as a passive monitor - it doesn't spawn its own drone
 but observes the network through RNS packet monitoring.
 """
 
-import time
-import json
 import os
 import sys
 import threading
 from typing import Dict, List, Optional, Tuple
+import time
+import json
+
+# Add project root to Python path for imports
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 import RNS
-from drone_state import DroneNetwork, DroneStatus, DroneState
-from drone_packet import DronePacket
+from core.drone_state import DroneNetwork, DroneStatus, DroneState
+from networking.drone_packet import DronePacket
 
 class PassiveBroadcastHandler:
     """
@@ -47,7 +53,7 @@ class PassiveBroadcastHandler:
                 lambda data, packet: self.packet_buffer.append((time.monotonic_ns(), data, packet))
             )
         except Exception as e:
-            print(f"⚠️  Warning: Could not create broadcast destination: {e}")
+            print(f"Error processing network status: {e}")
             self.broadcast_destination = None
     
     def get_packet(self):
@@ -136,6 +142,61 @@ class PassiveNetworkState:
             "network_established": self.network_established,
             "drones": {drone_id: drone.to_dict() for drone_id, drone in self.known_drones.items()}
         }
+    
+    def synchronize_master_status(self, master_id):
+        """Ensure consistency between master_drone_id and drone status"""
+        try:
+            # First, clear any existing master status from all drones
+            for drone in self.get_all_drones():
+                if drone.status == DroneStatus.MASTER and drone.drone_id != master_id:
+                    drone.status = DroneStatus.SLAVE
+            
+            # Set the correct drone as master
+            master_drone = None
+            for drone_id, drone in self.known_drones.items():
+                if drone_id == master_id:
+                    drone.status = DroneStatus.MASTER
+                    master_drone = drone
+                    break
+            
+            # If master drone doesn't exist in our list, create it
+            if not master_drone and master_id:
+                self.add_or_update_drone(
+                    master_id, 
+                    DroneStatus.MASTER,
+                    position=(0, 0, 0),
+                    battery_level=100.0
+                )
+                
+        except Exception as e:
+            print(f"Error synchronizing master status: {e}")
+    
+    def detect_actual_master(self):
+        """Detect the actual master from drone statuses and sync master_drone_id"""
+        try:
+            # Find drones with MASTER status
+            master_drones = [d for d in self.get_all_drones() 
+                           if d.status == DroneStatus.MASTER]
+            
+            if len(master_drones) == 1:
+                # Single master found - this is the correct master
+                actual_master_id = master_drones[0].drone_id
+                if self.master_drone_id != actual_master_id:
+                    self.master_drone_id = actual_master_id
+            elif len(master_drones) > 1:
+                # Multiple masters detected - this shouldn't happen, log it
+                master_ids = [d.drone_id for d in master_drones]
+                print(f"⚠️ Multiple masters detected: {master_ids}")
+                # Keep the lowest ID as master for consistency
+                correct_master = min(master_ids)
+                self.master_drone_id = correct_master
+                self.synchronize_master_status(correct_master)
+            elif len(master_drones) == 0:
+                # No master found
+                self.master_drone_id = None
+                    
+        except Exception as e:
+            print(f"Error detecting actual master: {e}")
 
 class PassiveNetworkMonitor:
     """
@@ -273,6 +334,8 @@ class PassiveNetworkMonitor:
             
             if master_id and hasattr(self.drone_network, 'master_drone_id'):
                 self.drone_network.master_drone_id = master_id
+                # Ensure consistency: if we have a master_id, make sure that drone has MASTER status
+                self.drone_network.synchronize_master_status(master_id)
                 
             # Update information about known drones
             for drone_info in known_drones:
@@ -355,6 +418,9 @@ class DroneNetworkVisualizer:
         print("=" * 80)
         print("🚁 DRONE NETWORK VISUALIZATION (PASSIVE MODE) 🚁")
         print("=" * 80)
+        
+        # Sync master status before displaying to ensure consistency
+        self.network.detect_actual_master()
         
         # Network summary
         online_count = self.network.get_online_drone_count()

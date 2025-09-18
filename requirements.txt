@@ -1,5 +1,6 @@
 cffi==2.0.0
 cryptography==45.0.7
+numpy==2.3.3
 pycparser==2.23
 pyserial==3.5
 PyYAML==6.0.2

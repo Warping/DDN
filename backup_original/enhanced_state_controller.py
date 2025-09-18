@@ -1,8 +1,8 @@
 import time
 import random
-from broadcast_controller import BroadcastHandler
-from drone_packet import DronePacket
-from drone_state import DroneNetwork, DroneStatus
+from networking.broadcast_controller import BroadcastHandler
+from networking.drone_packet import DronePacket
+from core.drone_state import DroneNetwork, DroneStatus
 
 class EnhancedStateController:
     """
@@ -172,11 +172,30 @@ class EnhancedStateController:
         if not self.quiet_mode:
             print(f"Received heartbeat from drone {sender_id}")
         
-        # If this heartbeat is from the master, update master heartbeat time
+        # If this heartbeat is from the current master, update master heartbeat time
         if sender_id == self.drone_network.master_drone_id:
             self.last_master_heartbeat_time = time.time()
+            if not self.quiet_mode:
+                print(f"📡 Updated master heartbeat time for master {sender_id}")
         
-        # Heartbeat automatically updates last_seen through add_or_update_drone
+        # Update the sender's last_seen time through add_or_update_drone
+        # This is already handled in handle_received_packet, but let's ensure it's updated
+        sender_drone = self.drone_network.get_drone(sender_id)
+        if sender_drone:
+            sender_drone.update_last_seen()
+        
+        # If we receive a heartbeat from a drone claiming to be master, but we think someone else is master
+        sender_status = packet.params.get('status', 'unknown')
+        if (sender_status == 'master' and 
+            self.drone_network.master_drone_id and 
+            self.drone_network.master_drone_id != sender_id):
+            
+            print(f"⚠️ Conflicting master claim: {sender_id} claims master but we think {self.drone_network.master_drone_id} is master")
+            # Trigger re-election to resolve conflict
+            if not self.election_in_progress:
+                print("🗳️ Starting election to resolve master conflict")
+                self.drone_network.master_drone_id = None  # Clear conflicting master
+                self.initiate_master_election()
     
     def handle_network_status(self, packet: DronePacket):
         """Handle network status sharing packets"""
@@ -431,16 +450,41 @@ class EnhancedStateController:
         if self.drone_network.master_drone_id:
             master_drone = self.drone_network.get_drone(self.drone_network.master_drone_id)
             
-            if (not master_drone or 
-                not master_drone.is_online(self.master_timeout) or
-                (current_time - self.last_master_heartbeat_time > self.master_timeout)):
+            # Multiple conditions to detect master death:
+            # 1. Master drone not found in our known drones
+            # 2. Master drone marked as not online (using is_online check)
+            # 3. Haven't received heartbeat from master in timeout period
+            master_offline = False
+            offline_reason = ""
+            
+            if not master_drone:
+                master_offline = True
+                offline_reason = "master not found in known drones"
+            elif not master_drone.is_online(self.master_timeout):
+                master_offline = True
+                offline_reason = f"master last seen {current_time - master_drone.last_seen:.1f}s ago"
+            elif (current_time - self.last_master_heartbeat_time > self.master_timeout):
+                master_offline = True
+                offline_reason = f"no master heartbeat for {current_time - self.last_master_heartbeat_time:.1f}s"
+            
+            if master_offline:
+                print(f"💀 Master drone {self.drone_network.master_drone_id} is offline ({offline_reason}) - initiating re-election")
                 
-                print(f"Master drone {self.drone_network.master_drone_id} appears offline - initiating re-election")
+                # Clear the dead master
+                old_master_id = self.drone_network.master_drone_id
                 self.drone_network.master_drone_id = None
                 
-                if (self.drone_network.get_online_drone_count() > 1 and 
+                # Remove dead master from known drones if it's really gone
+                if master_drone and not master_drone.is_online(self.master_timeout):
+                    print(f"🗑️ Removing dead master {old_master_id} from known drones")
+                    self.drone_network.remove_drone(old_master_id)
+                
+                # Start re-election if we have other drones
+                if (self.drone_network.get_online_drone_count() >= 1 and 
                     not self.election_in_progress):
                     self.initiate_master_election()
+                else:
+                    print("No other drones available for re-election")
     
     def handle_ack(self, packet: DronePacket):
         """Handle acknowledgment packets"""
@@ -552,9 +596,22 @@ class EnhancedStateController:
                 self.send_network_status()
                 self.last_network_sync_time = current_time
             
-            # Cleanup offline drones periodically
-            if current_time - self.last_cleanup_time > 60.0:  # Every minute
-                self.drone_network.cleanup_offline_drones()
+            # Cleanup offline drones more frequently to detect master death faster
+            if current_time - self.last_cleanup_time > 15.0:  # Every 15 seconds instead of 60
+                initial_count = self.drone_network.get_drone_count()
+                self.drone_network.cleanup_offline_drones(timeout=self.master_timeout)
+                final_count = self.drone_network.get_drone_count()
+                
+                if final_count < initial_count:
+                    removed_count = initial_count - final_count
+                    print(f"🗑️ Cleaned up {removed_count} offline drones")
+                    
+                    # If master was removed during cleanup, trigger re-election
+                    if (self.drone_network.master_drone_id and 
+                        not self.drone_network.get_drone(self.drone_network.master_drone_id)):
+                        print(f"💀 Master {self.drone_network.master_drone_id} was cleaned up - clearing master")
+                        self.drone_network.master_drone_id = None
+                
                 self.last_cleanup_time = current_time
             
             # Update state based on network conditions

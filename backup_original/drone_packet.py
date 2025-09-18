@@ -1,6 +1,6 @@
 import json
 import time
-from broadcast_controller import BroadcastHandler
+from networking.broadcast_controller import BroadcastHandler
 
 class DronePacket:
     def __init__(self, json_string=None):

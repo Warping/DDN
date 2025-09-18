@@ -1,6 +1,6 @@
 import time
-from broadcast_controller import BroadcastHandler
-from drone_packet import DronePacket
+from networking.broadcast_controller import BroadcastHandler
+from networking.drone_packet import DronePacket
 import random
 
 class StateController:
