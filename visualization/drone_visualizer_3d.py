@@ -278,7 +278,7 @@ class Drone3DVisualizer:
         
         # Group drones by status
         for drone in self.drones.values():
-            if drone.is_online():
+            if drone.is_online() and drone.position:
                 status = drone.status
                 x, y, z = drone.position
                 

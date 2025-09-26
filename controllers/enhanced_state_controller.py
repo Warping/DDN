@@ -21,7 +21,7 @@ class EnhancedStateController:
     def __init__(self, drone_id=None, quiet_mode=False):
         self.drone_network = DroneNetwork(drone_id)
         self.bh = BroadcastHandler()
-        self.time_step = 0.2  # Base time step in seconds - increased from 3.0
+        self.time_step = 0.5  # Base time step in seconds - increased from 3.0
         self.discovery_interval = 5.0  # Discovery announcement interval - increased from 5.0
         self.heartbeat_interval = 10.0  # Heartbeat interval - increased from 10.0
         self.network_sync_interval = 15.0  # Network status sharing interval - increased from 15.0
@@ -69,6 +69,10 @@ class EnhancedStateController:
                 
             timestamp_ns, data, rns_packet = packet_data
             
+            # # Decode the packet
+            # drone_packet = DronePacket(data.decode('utf-8'))
+            # self.handle_received_packet(drone_packet)
+            
             try:
                 # Decode the packet
                 drone_packet = DronePacket(data.decode('utf-8'))
@@ -100,12 +104,12 @@ class EnhancedStateController:
             return
         
         # Update or add the sender drone
-        position = params.get("position", (9,9,9))  # Don't default to (0,0,0)
-        battery_level = params.get("battery_level", 100.0)
-        signal_strength = params.get("signal_strength", 0.0)
+        position = params.get("position", None)  # Don't default to (0,0,0)
+        battery_level = params.get("battery_level", None)
+        signal_strength = params.get("signal_strength", None)
         
         # Only update position if it's provided in the packet
-        if position is not None:
+        if position is not None and battery_level is not None and signal_strength is not None:
             sender_drone = self.drone_network.add_or_update_drone(
                 sender_id, DroneStatus(packet.current_state), 
                 position, battery_level, signal_strength
@@ -115,14 +119,13 @@ class EnhancedStateController:
             if sender_id in self.drone_network.known_drones:
                 sender_drone = self.drone_network.known_drones[sender_id]
                 sender_drone.status = DroneStatus(packet.current_state)
-                sender_drone.update_battery(battery_level)
-                sender_drone.signal_strength = signal_strength
+                # sender_drone.update_battery(battery_level)
+                # sender_drone.signal_strength = signal_strength
                 sender_drone.update_last_seen()
             else:
                 # New drone without position - let it keep its random initial position
                 sender_drone = self.drone_network.add_or_update_drone(
-                    sender_id, DroneStatus(packet.current_state), 
-                    None, battery_level, signal_strength
+                    sender_id, DroneStatus(packet.current_state)
                 )
         
         # Handle specific packet types

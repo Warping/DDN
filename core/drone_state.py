@@ -24,7 +24,7 @@ class DroneState:
         self.status = DroneStatus.SEEKING
         self.last_seen = time.time()
         self.discovery_time = time.time()
-        self.position = (random.uniform(-5, 5), random.uniform(-5, 5), random.uniform(0, 10))  # Random initial position
+        self.position = (random.uniform(-5, 5), random.uniform(-5, 5), 0)  # Random initial position
         self.battery_level = 100.0
         self.is_self = False
         self.ping_count = 0
@@ -144,7 +144,7 @@ class DroneNetwork:
     
     def add_or_update_drone(self, drone_id: int, status: DroneStatus = DroneStatus.SEEKING, 
                            position: Optional[Tuple[float, float, float]] = None,
-                           battery_level: float = 100.0, signal_strength: float = 0.0) -> DroneState:
+                           battery_level = None, signal_strength = None) -> DroneState:
         """Add a new drone or update existing drone information"""
         
         # Debug: Check if we're trying to update the self drone
@@ -160,8 +160,10 @@ class DroneNetwork:
             # Only update position if provided
             if position is not None:
                 drone.update_position(*position)
-            drone.update_battery(battery_level)
-            drone.signal_strength = signal_strength
+            if battery_level is not None:
+                drone.update_battery(battery_level)
+            if signal_strength is not None:
+                drone.signal_strength = signal_strength
             drone.update_last_seen()
         else:
             # Add new drone
@@ -170,8 +172,10 @@ class DroneNetwork:
             # For new drones, use provided position or keep the random default from DroneState.__init__
             if position is not None:
                 drone.update_position(*position)
-            drone.update_battery(battery_level)
-            drone.signal_strength = signal_strength
+            if battery_level is not None:
+                drone.update_battery(battery_level)
+            if signal_strength is not None:
+                drone.signal_strength = signal_strength
             self.known_drones[drone_id] = drone
             
         return drone
