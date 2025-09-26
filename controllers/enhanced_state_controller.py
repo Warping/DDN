@@ -21,20 +21,21 @@ class EnhancedStateController:
     def __init__(self, drone_id=None, quiet_mode=False):
         self.drone_network = DroneNetwork(drone_id)
         self.bh = BroadcastHandler()
+        self.alive = True
         self.time_step = 0.2  # Base time step in seconds - increased from 3.0
         self.discovery_interval = 2.0  # Discovery announcement interval - increased from 5.0
         self.heartbeat_interval = 3.0  # Heartbeat interval - increased from 10.0
         self.network_sync_interval = 5.0  # Network status sharing interval - increased from 15.0
         self.master_election_interval = 3.0  # Master election check interval - increased from 8.0
-        self.master_timeout = 10.0  # Time to wait before considering master offline - reduced from 25.0
+        self.master_timeout = 15.0  # Time to wait before considering master offline - increased for stability
         self.quiet_mode = quiet_mode  # Suppress frequent status messages
         
-        # Update intervals to be proportional to time_step
-        self.discovery_interval *= self.time_step
-        self.heartbeat_interval *= self.time_step
-        self.network_sync_interval *= self.time_step
-        self.master_election_interval *= self.time_step
-        self.master_timeout *= self.time_step
+        # Update intervals to be proportional to time_step, but keep timeouts absolute
+        self.discovery_interval *= self.time_step  # Will be 0.4 seconds
+        self.heartbeat_interval *= self.time_step  # Will be 0.6 seconds  
+        self.network_sync_interval *= self.time_step  # Will be 1.0 seconds
+        self.master_election_interval *= self.time_step  # Will be 0.6 seconds
+        # Keep master_timeout absolute (15.0 seconds) - don't multiply by time_step!
         
         # Timing variables
         self.last_discovery_time = 0
@@ -192,18 +193,24 @@ class EnhancedStateController:
         if sender_drone:
             sender_drone.update_last_seen()
         
-        # If we receive a heartbeat from a drone claiming to be master, but we think someone else is master
+        # If we receive a heartbeat from a drone claiming to be master
         sender_status = packet.params.get('status', 'unknown')
-        if (sender_status == 'master' and 
-            self.drone_network.master_drone_id and 
-            self.drone_network.master_drone_id != sender_id):
-            
-            print(f"⚠️ Conflicting master claim: {sender_id} claims master but we think {self.drone_network.master_drone_id} is master")
-            # Trigger re-election to resolve conflict
-            if not self.election_in_progress:
-                print("🗳️ Starting election to resolve master conflict")
-                self.drone_network.master_drone_id = None  # Clear conflicting master
-                self.initiate_master_election()
+        if sender_status == 'master':
+            if self.drone_network.master_drone_id is None:
+                # We have no master assigned, accept this one
+                print(f"👑 Accepting {sender_id} as master from heartbeat")
+                self.drone_network.master_drone_id = sender_id
+                self.last_master_heartbeat_time = time.time()
+                # Update sender's status to master
+                if sender_drone:
+                    sender_drone.status = DroneStatus.MASTER
+            elif self.drone_network.master_drone_id != sender_id:
+                print(f"⚠️ Conflicting master claim: {sender_id} claims master but we think {self.drone_network.master_drone_id} is master")
+                # Trigger re-election to resolve conflict
+                if not self.election_in_progress:
+                    print("🗳️ Starting election to resolve master conflict")
+                    self.drone_network.master_drone_id = None  # Clear conflicting master
+                    self.initiate_master_election()
     
     def handle_network_status(self, packet: DronePacket):
         """Handle network status sharing packets"""
@@ -458,6 +465,12 @@ class EnhancedStateController:
         if self.drone_network.master_drone_id:
             master_drone = self.drone_network.get_drone(self.drone_network.master_drone_id)
             
+            # If we are the master, don't check our own heartbeat - we're obviously alive
+            if self.drone_network.master_drone_id == self.drone_network.get_self_id():
+                # We are the master, keep the heartbeat time updated
+                self.last_master_heartbeat_time = current_time
+                return
+            
             # Multiple conditions to detect master death:
             # 1. Master drone not found in our known drones
             # 2. Master drone marked as not online (using is_online check)
@@ -571,12 +584,17 @@ class EnhancedStateController:
             
             # Update network status based on master election results
             self.drone_network.update_network_status()
+            
+    def stop(self):
+        """Stop the controller and cleanup"""
+        print("Stopping Enhanced State Controller...")
+        self.alive = False
     
     def control_loop(self):
         """Main control loop for enhanced state management"""
         print("Starting enhanced control loop...")
         
-        while True:
+        while self.alive:
             current_time = time.time()
             
             # Process incoming packets
@@ -584,8 +602,7 @@ class EnhancedStateController:
             
             # Send discovery announcements when seeking
             if (self.drone_network.self_drone.status == DroneStatus.SEEKING and
-                current_time - self.last_discovery_time > self.discovery_interval and
-                self.discovery_attempts < self.max_discovery_attempts):
+                current_time - self.last_discovery_time > self.discovery_interval):
                 
                 self.send_discovery_announcement()
                 self.last_discovery_time = current_time
@@ -633,6 +650,8 @@ class EnhancedStateController:
             
             # Sleep to prevent excessive CPU usage
             time.sleep(0.1)
+        
+        print("Enhanced control loop terminated.")
     
     def display_status(self):
         """Display current network status"""
@@ -790,3 +809,21 @@ class StateController(EnhancedStateController):
         self.drone_id = self.drone_network.get_self_id()
         self.detected_drones = [drone.drone_id for drone in self.drone_network.get_online_drones()]
         self.acked_drones = self.detected_drones.copy()
+
+if __name__ == "__main__":
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Enhanced State Controller")
+    parser.add_argument("--drone-id", type=int, help="Specific drone ID to use")
+    parser.add_argument("--quiet", action="store_true", help="Suppress frequent status messages")
+    args = parser.parse_args()
+    
+    try:
+        controller = EnhancedStateController(drone_id=args.drone_id, quiet_mode=args.quiet)
+        controller.control_loop()
+    except KeyboardInterrupt:
+        print("\nShutting down Enhanced State Controller...")
+    except Exception as e:
+        print(f"Error in Enhanced State Controller: {e}")
+        import traceback
+        traceback.print_exc()
