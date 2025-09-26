@@ -24,7 +24,7 @@ class DroneState:
         self.status = DroneStatus.SEEKING
         self.last_seen = time.time()
         self.discovery_time = time.time()
-        self.position = (0.0, 0.0, 0.0)  # x, y, z coordinates
+        self.position = (random.uniform(-5, 5), random.uniform(-5, 5), random.uniform(0, 10))  # Random initial position
         self.battery_level = 100.0
         self.is_self = False
         self.ping_count = 0
@@ -50,8 +50,21 @@ class DroneState:
     
     def update_position(self, x: float, y: float, z: float):
         """Update drone position coordinates"""
+        if (x, y, z) == (0.0, 0.0, 0.0):
+            print(f"🚨🚨🚨 CRITICAL ERROR: update_position called with (0,0,0) for drone {self.drone_id} 🚨🚨🚨")
+            return
+        old_position = self.position
         self.position = (x, y, z)
         self.update_last_seen()
+        
+        # Debug output for position changes - ALWAYS show for self drone
+        if self.is_self:
+            if self.position == (0.0, 0.0, 0.0) and old_position != (0.0, 0.0, 0.0):
+                print(f"🚨🚨🚨 CRITICAL: Self drone {self.drone_id} position RESET to (0,0,0) from {old_position} 🚨🚨🚨")
+                import traceback
+                traceback.print_stack()
+            elif old_position != self.position:
+                print(f"📍 Self drone {self.drone_id} position changed: {old_position} -> {self.position}")
     
     def update_battery(self, level: float):
         """Update battery level (0-100)"""
@@ -114,6 +127,7 @@ class DroneNetwork:
     def __init__(self, self_drone_id: Optional[int] = None):
         self.self_drone = DroneState(self_drone_id)
         self.self_drone.is_self = True
+        print(f"🚁 Created self drone {self.self_drone.drone_id} with initial position {self.self_drone.position}")
         self.known_drones: Dict[int, DroneState] = {self.self_drone.drone_id: self.self_drone}
         self.master_drone_id: Optional[int] = None
         self.network_established = False
@@ -129,15 +143,23 @@ class DroneNetwork:
         self.self_drone.update_last_seen()
     
     def add_or_update_drone(self, drone_id: int, status: DroneStatus = DroneStatus.SEEKING, 
-                           position: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+                           position: Optional[Tuple[float, float, float]] = None,
                            battery_level: float = 100.0, signal_strength: float = 0.0) -> DroneState:
         """Add a new drone or update existing drone information"""
+        
+        # Debug: Check if we're trying to update the self drone
+        if drone_id == self.self_drone.drone_id:
+            print(f"🚨🚨🚨 CRITICAL ERROR: add_or_update_drone called for SELF drone {drone_id} with position {position} 🚨🚨🚨")
+            import traceback
+            traceback.print_stack()
         
         if drone_id in self.known_drones:
             # Update existing drone
             drone = self.known_drones[drone_id]
             drone.status = status
-            drone.update_position(*position)
+            # Only update position if provided
+            if position is not None:
+                drone.update_position(*position)
             drone.update_battery(battery_level)
             drone.signal_strength = signal_strength
             drone.update_last_seen()
@@ -145,7 +167,9 @@ class DroneNetwork:
             # Add new drone
             drone = DroneState(drone_id)
             drone.status = status
-            drone.update_position(*position)
+            # For new drones, use provided position or keep the random default from DroneState.__init__
+            if position is not None:
+                drone.update_position(*position)
             drone.update_battery(battery_level)
             drone.signal_strength = signal_strength
             self.known_drones[drone_id] = drone

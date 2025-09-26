@@ -73,8 +73,8 @@ class PassiveNetworkState:
         self.network_established = False
         
     def add_or_update_drone(self, drone_id: int, status: Optional[DroneStatus] = None, 
-                           position: Tuple[float, float, float] = (0.0, 0.0, 0.0),
-                           battery_level: float = 100.0, signal_strength: float = 0.0):
+                           position = None,
+                           battery_level = None, signal_strength = None):
         """Add a new drone or update existing drone information"""
         
         if status is None:
@@ -84,17 +84,20 @@ class PassiveNetworkState:
             # Update existing drone
             drone = self.known_drones[drone_id]
             drone.status = status
-            drone.update_position(*position)
-            drone.update_battery(battery_level)
-            drone.signal_strength = signal_strength
+            if position:
+                drone.update_position(*position)
+            if battery_level is not None:
+                drone.update_battery(battery_level)
+            if signal_strength is not None:
+                drone.signal_strength = signal_strength
             drone.update_last_seen()
         else:
             # Add new drone
             drone = DroneState(drone_id)
             drone.status = status
-            drone.update_position(*position)
-            drone.update_battery(battery_level)
-            drone.signal_strength = signal_strength
+            # drone.update_position(*position)
+            # drone.update_battery(battery_level)
+            # drone.signal_strength = signal_strength
             self.known_drones[drone_id] = drone
             
         return drone
@@ -163,9 +166,7 @@ class PassiveNetworkState:
             if not master_drone and master_id:
                 self.add_or_update_drone(
                     master_id, 
-                    DroneStatus.MASTER,
-                    position=(0, 0, 0),
-                    battery_level=100.0
+                    DroneStatus.MASTER
                 )
                 
         except Exception as e:
@@ -280,8 +281,8 @@ class PassiveNetworkMonitor:
             self.last_activity[drone_id] = time.time()
             
             # Extract position (default to origin if not provided)
-            position = params.get("position", (0, 0, 0))
-            battery_level = params.get("battery_level", 100.0)
+            position = params.get("position", None)
+            battery_level = params.get("battery_level", None)
             
             # Convert state string to DroneStatus enum
             try:
@@ -341,9 +342,9 @@ class PassiveNetworkMonitor:
             for drone_info in known_drones:
                 if isinstance(drone_info, dict):
                     drone_id = drone_info.get("id")
-                    position = drone_info.get("position", (0, 0, 0))
+                    position = drone_info.get("position", None)
                     status_str = drone_info.get("status", "CONNECTED")
-                    battery_level = drone_info.get("battery_level", 100.0)
+                    battery_level = drone_info.get("battery_level", None)
                     
                     if drone_id:
                         status = self._parse_status(status_str)
@@ -640,67 +641,12 @@ class SimpleDroneMonitor:
         
         self.last_display_time = time.time()
 
-def create_matplotlib_visualization(monitor: PassiveNetworkMonitor):
-    """Create 3D matplotlib visualization of drone positions"""
-    try:
-        import matplotlib.pyplot as plt
-        import numpy as np
-        
-        fig = plt.figure(figsize=(12, 8))
-        ax = fig.add_subplot(111, projection='3d')
-        
-        drones = monitor.drone_network.get_all_drones()
-        
-        # Separate data by status
-        positions = {'seeking': [], 'connected': [], 'master': [], 'slave': []}
-        colors = {'seeking': 'orange', 'connected': 'green', 'master': 'red', 'slave': 'blue'}
-        markers = {'seeking': 'o', 'connected': 's', 'master': '^', 'slave': 'D'}
-        
-        for drone in drones:
-            x, y, z = drone.position
-            
-            # Categorize by status
-            if drone.status == DroneStatus.SEEKING:
-                positions['seeking'].append([x, y, z, drone.drone_id])
-            elif drone.status == DroneStatus.CONNECTED:
-                positions['connected'].append([x, y, z, drone.drone_id])
-            elif drone.status == DroneStatus.MASTER:
-                positions['master'].append([x, y, z, drone.drone_id])
-            elif drone.status == DroneStatus.SLAVE:
-                positions['slave'].append([x, y, z, drone.drone_id])
-        
-        # Plot each group
-        for status, pos_list in positions.items():
-            if pos_list:
-                pos_array = np.array(pos_list)
-                ax.scatter(pos_array[:, 0], pos_array[:, 1], pos_array[:, 2], 
-                          c=colors[status], marker=markers[status], s=100, label=status.title())
-                
-                # Add drone ID labels
-                for i, (x, y, z, drone_id) in enumerate(pos_list):
-                    ax.text(x, y, z, f'  {int(drone_id)}', fontsize=8)
-        
-        ax.set_xlabel('X Position')
-        ax.set_ylabel('Y Position')
-        ax.set_zlabel('Z Position')
-        ax.set_title('Drone Network 3D Visualization')
-        ax.legend()
-        
-        plt.tight_layout()
-        plt.show()
-        
-        return True
-        
-    except ImportError:
-        print("📊 Matplotlib not available. Install with: pip install matplotlib")
-        return False
-
 def main():
     """Main function for standalone visualization"""
     import argparse
     
     parser = argparse.ArgumentParser(description="Drone Network Visualizer (Passive Mode)")
-    parser.add_argument("--mode", choices=['realtime', 'plot', 'export'], default='realtime',
+    parser.add_argument("--mode", choices=['realtime', 'export'], default='realtime',
                        help="Visualization mode")
     parser.add_argument("--export-file", type=str, help="Export filename")
     parser.add_argument("--update-interval", type=float, default=1.0, 
@@ -720,12 +666,6 @@ def main():
     if args.mode == 'realtime':
         print("Starting real-time visualization...")
         visualizer.real_time_display()
-    
-    elif args.mode == 'plot':
-        print("Creating 3D plot...")
-        if not create_matplotlib_visualization(monitor):
-            print("Falling back to terminal visualization...")
-            visualizer.real_time_display()
     
     elif args.mode == 'export':
         print("Exporting network data...")

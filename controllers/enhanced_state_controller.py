@@ -22,11 +22,11 @@ class EnhancedStateController:
         self.drone_network = DroneNetwork(drone_id)
         self.bh = BroadcastHandler()
         self.time_step = 0.2  # Base time step in seconds - increased from 3.0
-        self.discovery_interval = 2.0  # Discovery announcement interval - increased from 5.0
-        self.heartbeat_interval = 3.0  # Heartbeat interval - increased from 10.0
-        self.network_sync_interval = 5.0  # Network status sharing interval - increased from 15.0
-        self.master_election_interval = 3.0  # Master election check interval - increased from 8.0
-        self.master_timeout = 10.0  # Time to wait before considering master offline - reduced from 25.0
+        self.discovery_interval = 5.0  # Discovery announcement interval - increased from 5.0
+        self.heartbeat_interval = 10.0  # Heartbeat interval - increased from 10.0
+        self.network_sync_interval = 15.0  # Network status sharing interval - increased from 15.0
+        self.master_election_interval = 8.0  # Master election check interval - increased from 8.0
+        self.master_timeout = 25.0  # Time to wait before considering master offline - reduced from 25.0
         self.quiet_mode = quiet_mode  # Suppress frequent status messages
         
         # Update intervals to be proportional to time_step
@@ -49,12 +49,12 @@ class EnhancedStateController:
         self.discovery_attempts = 0
         self.max_discovery_attempts = 10
         self.network_stable_time = 0
-        self.min_stable_time = 5.0  # Reduced from 15s for faster elections
+        self.min_stable_time = 15.0 * self.time_step # Reduced from 15s for faster elections
         
         # Master election state
         self.election_in_progress = False
         self.election_start_time = 0
-        self.election_timeout = 5.0  # Election must complete within 5 seconds - reduced from 10.0
+        self.election_timeout = 10.0 * self.time_step # Election must complete within 5 seconds - reduced from 10.0
         self.election_votes = {}  # Track votes during election
         self.has_voted = False
         
@@ -100,14 +100,30 @@ class EnhancedStateController:
             return
         
         # Update or add the sender drone
-        position = params.get("position", (0, 0, 0))
+        position = params.get("position", (9,9,9))  # Don't default to (0,0,0)
         battery_level = params.get("battery_level", 100.0)
         signal_strength = params.get("signal_strength", 0.0)
         
-        sender_drone = self.drone_network.add_or_update_drone(
-            sender_id, DroneStatus(packet.current_state), 
-            position, battery_level, signal_strength
-        )
+        # Only update position if it's provided in the packet
+        if position is not None:
+            sender_drone = self.drone_network.add_or_update_drone(
+                sender_id, DroneStatus(packet.current_state), 
+                position, battery_level, signal_strength
+            )
+        else:
+            # Update without changing position
+            if sender_id in self.drone_network.known_drones:
+                sender_drone = self.drone_network.known_drones[sender_id]
+                sender_drone.status = DroneStatus(packet.current_state)
+                sender_drone.update_battery(battery_level)
+                sender_drone.signal_strength = signal_strength
+                sender_drone.update_last_seen()
+            else:
+                # New drone without position - let it keep its random initial position
+                sender_drone = self.drone_network.add_or_update_drone(
+                    sender_id, DroneStatus(packet.current_state), 
+                    None, battery_level, signal_strength
+                )
         
         # Handle specific packet types
         if action == "PING":
@@ -217,7 +233,15 @@ class EnhancedStateController:
         # Update our knowledge of the network
         for drone_info in known_drones:
             if drone_info != self.drone_network.get_self_id():
-                self.drone_network.add_or_update_drone(drone_info, DroneStatus.CONNECTED)
+                # Only add new drones or update status, don't change position without position data
+                if drone_info not in self.drone_network.known_drones:
+                    # New drone - add it with default status
+                    self.drone_network.add_or_update_drone(drone_info, DroneStatus.CONNECTED)
+                else:
+                    # Existing drone - just update status and timestamp, preserve position
+                    existing_drone = self.drone_network.known_drones[drone_info]
+                    existing_drone.status = DroneStatus.CONNECTED
+                    existing_drone.update_last_seen()
         
         # Update master information if provided
         if master_id and master_id != self.drone_network.master_drone_id:
@@ -474,6 +498,11 @@ class EnhancedStateController:
             elif (current_time - self.last_master_heartbeat_time > self.master_timeout):
                 master_offline = True
                 offline_reason = f"no master heartbeat for {current_time - self.last_master_heartbeat_time:.1f}s"
+            
+            # If we are master, ignore offline checks
+            if self.drone_network.self_drone.status == DroneStatus.MASTER:
+                master_offline = False
+            
             
             if master_offline:
                 print(f"💀 Master drone {self.drone_network.master_drone_id} is offline ({offline_reason}) - initiating re-election")
