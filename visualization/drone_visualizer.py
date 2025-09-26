@@ -357,7 +357,7 @@ class PassiveNetworkMonitor:
         except:
             pass
     
-    def cleanup_stale_drones(self, timeout=3):
+    def cleanup_stale_drones(self, timeout=10):
         """Remove drones that haven't been seen for a while"""
         current_time = time.time()
         stale_drones = []
