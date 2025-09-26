@@ -49,7 +49,7 @@ class DroneSpawner:
             # For visualizer, just run the passive visualizer (no drone spawning)
             cmd = ["python", "drone_visualizer.py", "--mode", "realtime"]
         else:
-            cmd = ["python", "run_drone.py", str(drone_id)]
+            cmd = ["python", "applications/run_drone.py", str(drone_id)]
         
         try:
             # Spawn the drone process
