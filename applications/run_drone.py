@@ -75,6 +75,12 @@ def main():
             # Update state (includes master election logic)
             controller.update_state_based_on_network()
             
+            # Display detailed network state if we're master
+            if controller.drone_network.self_drone.status == DroneStatus.MASTER:
+                controller.print_network_state()
+            else:
+                pass
+            
             time.sleep(0.1)  # Small delay to prevent high CPU usage
             
     except KeyboardInterrupt:

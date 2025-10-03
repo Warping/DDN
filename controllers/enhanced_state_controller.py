@@ -305,7 +305,6 @@ class EnhancedStateController:
             known_drone_ids,
             self.drone_network.master_drone_id
         )
-        
         if not self.quiet_mode:
             print(f"Shared network status: {len(known_drone_ids)} drones, master: {self.drone_network.master_drone_id}")
     
@@ -596,6 +595,207 @@ class EnhancedStateController:
         
         return False
     
+    def query_network_state(self):
+        """
+        Query and return comprehensive network state information
+        Returns a dictionary with complete network topology and drone states
+        """
+        current_time = time.time()
+        online_drones = self.drone_network.get_online_drones()
+        
+        # Organize drones by role
+        master_drones = []
+        slave_drones = []
+        seeking_drones = []
+        connected_drones = []
+        offline_drones = []
+        
+        for drone in self.drone_network.get_all_drones():
+            drone_info = {
+                "drone_id": drone.drone_id,
+                "status": drone.status.value,
+                "position": drone.position,
+                "battery_level": drone.battery_level,
+                "last_seen": drone.last_seen,
+                "age_seconds": current_time - drone.last_seen,
+                "is_online": drone.is_online(),
+                "is_self": drone.is_self,
+                "signal_strength": drone.signal_strength,
+                "uptime": current_time - drone.discovery_time,
+                "capabilities": drone.capabilities
+            }
+            
+            # Special handling: self drone is always considered online regardless of last_seen
+            # This prevents the master from being categorized as offline due to timestamp issues
+            is_effectively_online = drone.is_online() or drone.is_self
+            
+            if not is_effectively_online:
+                offline_drones.append(drone_info)
+            elif drone.status == DroneStatus.MASTER:
+                master_drones.append(drone_info)
+            elif drone.status == DroneStatus.SLAVE:
+                slave_drones.append(drone_info)
+            elif drone.status == DroneStatus.SEEKING:
+                seeking_drones.append(drone_info)
+            elif drone.status == DroneStatus.CONNECTED:
+                connected_drones.append(drone_info)
+        
+        # Get self drone info
+        self_info = {
+            "drone_id": self.drone_network.get_self_id(),
+            "status": self.drone_network.self_drone.status.value,
+            "position": self.drone_network.self_drone.position,
+            "battery_level": self.drone_network.self_drone.battery_level,
+            "is_master": self.drone_network.self_drone.status == DroneStatus.MASTER
+        }
+        
+        # Network statistics
+        network_stats = {
+            "total_drones": len(self.drone_network.known_drones),
+            "online_drones": len(online_drones),
+            "offline_drones": len(offline_drones),
+            "master_count": len(master_drones),
+            "slave_count": len(slave_drones),
+            "seeking_count": len(seeking_drones),
+            "connected_count": len(connected_drones),
+            "current_master_id": self.drone_network.master_drone_id,
+            "network_established": self.drone_network.network_established,
+            "election_in_progress": self.election_in_progress
+        }
+        
+        return {
+            "timestamp": current_time,
+            "query_time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(current_time)),
+            "queried_by": self.drone_network.get_self_id(),
+            "self_drone": self_info,
+            "network_stats": network_stats,
+            "drones_by_role": {
+                "masters": master_drones,
+                "slaves": slave_drones,
+                "seeking": seeking_drones,
+                "connected": connected_drones,
+                "offline": offline_drones
+            },
+            "all_drones": [
+                {
+                    "drone_id": drone.drone_id,
+                    "status": drone.status.value,
+                    "position": drone.position,
+                    "battery_level": drone.battery_level,
+                    "last_seen": drone.last_seen,
+                    "age_seconds": current_time - drone.last_seen,
+                    "is_online": drone.is_online(),
+                    "is_self": drone.is_self
+                }
+                for drone in self.drone_network.get_all_drones()
+            ]
+        }
+    
+    def print_network_state(self):
+        """
+        Print a formatted overview of the current network state
+        """
+        state = self.query_network_state()
+        
+        print("\n" + "="*80)
+        print(f"🌐 NETWORK STATE QUERY - {state['query_time']}")
+        print(f"📡 Queried by Drone {state['queried_by']} ({state['self_drone']['status']})")
+        print("="*80)
+        
+        # Network overview
+        stats = state['network_stats']
+        print(f"\n📊 NETWORK OVERVIEW:")
+        print(f"   Total Drones: {stats['total_drones']}")
+        print(f"   Online: {stats['online_drones']} | Offline: {stats['offline_drones']}")
+        print(f"   Current Master: {stats['current_master_id'] if stats['current_master_id'] else 'None'}")
+        print(f"   Election in Progress: {'Yes' if stats['election_in_progress'] else 'No'}")
+        
+        # Role breakdown
+        roles = state['drones_by_role']
+        if roles['masters']:
+            print(f"\n👑 MASTER DRONES ({len(roles['masters'])}):")
+            for drone in roles['masters']:
+                pos = drone['position']
+                print(f"   • Drone {drone['drone_id']} at ({pos[0]:.1f}, {pos[1]:.1f}, {pos[2]:.1f}) "
+                      f"- Battery: {drone['battery_level']:.1f}% "
+                      f"- Age: {drone['age_seconds']:.1f}s"
+                      f"{' (SELF)' if drone['is_self'] else ''}")
+        
+        if roles['slaves']:
+            print(f"\n🤝 SLAVE DRONES ({len(roles['slaves'])}):")
+            for drone in roles['slaves']:
+                pos = drone['position']
+                print(f"   • Drone {drone['drone_id']} at ({pos[0]:.1f}, {pos[1]:.1f}, {pos[2]:.1f}) "
+                      f"- Battery: {drone['battery_level']:.1f}% "
+                      f"- Age: {drone['age_seconds']:.1f}s"
+                      f"{' (SELF)' if drone['is_self'] else ''}")
+        
+        if roles['seeking']:
+            print(f"\n🔍 SEEKING DRONES ({len(roles['seeking'])}):")
+            for drone in roles['seeking']:
+                pos = drone['position']
+                print(f"   • Drone {drone['drone_id']} at ({pos[0]:.1f}, {pos[1]:.1f}, {pos[2]:.1f}) "
+                      f"- Battery: {drone['battery_level']:.1f}% "
+                      f"- Age: {drone['age_seconds']:.1f}s"
+                      f"{' (SELF)' if drone['is_self'] else ''}")
+        
+        if roles['connected']:
+            print(f"\n🔗 CONNECTED DRONES ({len(roles['connected'])}):")
+            for drone in roles['connected']:
+                pos = drone['position']
+                print(f"   • Drone {drone['drone_id']} at ({pos[0]:.1f}, {pos[1]:.1f}, {pos[2]:.1f}) "
+                      f"- Battery: {drone['battery_level']:.1f}% "
+                      f"- Age: {drone['age_seconds']:.1f}s"
+                      f"{' (SELF)' if drone['is_self'] else ''}")
+        
+        if roles['offline']:
+            print(f"\n💀 OFFLINE DRONES ({len(roles['offline'])}):")
+            for drone in roles['offline']:
+                pos = drone['position']
+                print(f"   • Drone {drone['drone_id']} at ({pos[0]:.1f}, {pos[1]:.1f}, {pos[2]:.1f}) "
+                      f"- Battery: {drone['battery_level']:.1f}% "
+                      f"- Offline for: {drone['age_seconds']:.1f}s")
+        
+        print("\n" + "="*80)
+    
+    def export_network_state_json(self, filename=None):
+        """
+        Export network state to JSON file
+        """
+        state = self.query_network_state()
+        
+        if filename is None:
+            timestamp = time.strftime("%Y%m%d_%H%M%S", time.localtime())
+            filename = f"network_state_drone_{self.drone_network.get_self_id()}_{timestamp}.json"
+        
+        import json
+        try:
+            with open(filename, 'w') as f:
+                json.dump(state, f, indent=2)
+            print(f"📁 Network state exported to: {filename}")
+            return filename
+        except Exception as e:
+            print(f"❌ Failed to export network state: {e}")
+            return None
+    
+    def get_network_summary(self):
+        """
+        Get a quick summary of network state - useful for debugging
+        """
+        state = self.query_network_state()
+        return {
+            "timestamp": state["timestamp"],
+            "master": state["network_stats"]["current_master_id"],
+            "online_count": state["network_stats"]["online_drones"],
+            "masters": [d["drone_id"] for d in state["drones_by_role"]["masters"]],
+            "slaves": [d["drone_id"] for d in state["drones_by_role"]["slaves"]],
+            "seeking": [d["drone_id"] for d in state["drones_by_role"]["seeking"]],
+            "positions": {
+                d["drone_id"]: d["position"] 
+                for d in state["all_drones"] if d["is_online"]
+            }
+        }
+    
     def handle_ack(self, packet: DronePacket):
         """Handle acknowledgment packets"""
         sender_id = packet.drone_id
@@ -607,6 +807,9 @@ class EnhancedStateController:
     
     def send_discovery_announcement(self):
         """Send discovery announcement to find other drones"""
+        # Update our own last_seen timestamp
+        self.drone_network.self_drone.update_last_seen()
+        
         DronePacket().discovery_announce(
             self.bh, self.drone_network.get_self_id(),
             self.drone_network.self_drone.status.value,
@@ -620,6 +823,9 @@ class EnhancedStateController:
     
     def send_heartbeat(self):
         """Send heartbeat to maintain network presence"""
+        # Update our own last_seen timestamp since we're actively sending heartbeats
+        self.drone_network.self_drone.update_last_seen()
+        
         DronePacket().heartbeat(
             self.bh, self.drone_network.get_self_id(),
             self.drone_network.self_drone.status.value,
@@ -631,6 +837,9 @@ class EnhancedStateController:
     
     def send_network_status(self):
         """Share network topology with other drones"""
+        # Update our own last_seen timestamp
+        self.drone_network.self_drone.update_last_seen()
+        
         known_drone_ids = list(self.drone_network.known_drones.keys())
         
         DronePacket().network_status(
@@ -644,6 +853,9 @@ class EnhancedStateController:
     
     def update_state_based_on_network(self):
         """Update drone state based on current network conditions"""
+        # Ensure self drone timestamp stays current during active operations
+        self.drone_network.self_drone.update_last_seen()
+        
         online_drones = self.drone_network.get_online_drones()
         online_count = len(online_drones)
         
