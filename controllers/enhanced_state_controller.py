@@ -21,7 +21,7 @@ class EnhancedStateController:
     def __init__(self, drone_id=None, quiet_mode=False):
         self.drone_network = DroneNetwork(drone_id)
         self.bh = BroadcastHandler()
-        self.time_step = 0.5  # Base time step in seconds - increased from 3.0
+        self.time_step = 0.1  # Base time step in seconds - increased from 3.0
         self.discovery_interval = 5.0  # Discovery announcement interval - increased from 5.0
         self.heartbeat_interval = 10.0  # Heartbeat interval - increased from 10.0
         self.network_sync_interval = 15.0  # Network status sharing interval - increased from 15.0
@@ -148,6 +148,14 @@ class EnhancedStateController:
         
         # Update network status after processing
         self.drone_network.update_network_status()
+        
+        # Check if a new/returning drone might trigger re-election
+        if (self.drone_network.self_drone.status == DroneStatus.MASTER and 
+            not self.election_in_progress):
+            # Check if we should step down due to this new information
+            if self.should_step_down_as_master():
+                if not self.quiet_mode:
+                    print(f"� New drone {sender_id} triggers master re-evaluation")
     
     def handle_ping(self, packet: DronePacket):
         """Handle ping packets"""
@@ -180,6 +188,16 @@ class EnhancedStateController:
         )
         
         print(f"Responded to discovery announcement from drone {sender_id}")
+        
+        # If we are master and this could be a new/returning drone, check if we should step down
+        if (self.drone_network.self_drone.status == DroneStatus.MASTER and 
+            not self.election_in_progress):
+            # Give the packet processing time to add the drone, then check
+            sender_drone = self.drone_network.get_drone(sender_id)
+            if sender_drone and self.should_step_down_as_master():
+                print(f"🔄 Discovery announcement from {sender_id} triggers master step-down")
+                self.drone_network.master_drone_id = None
+                self.initiate_master_election()
     
     def handle_discovery_response(self, packet: DronePacket):
         """Handle discovery response packets"""
@@ -191,6 +209,16 @@ class EnhancedStateController:
             sender_drone = self.drone_network.get_drone(sender_id)
             if sender_drone:
                 sender_drone.capabilities = packet.params["capabilities"]
+        
+        # If we are master and this is a new/returning drone, check if we should step down
+        if (self.drone_network.self_drone.status == DroneStatus.MASTER and 
+            not self.election_in_progress):
+            # Give a moment for the drone to be fully processed, then check
+            sender_drone = self.drone_network.get_drone(sender_id)
+            if sender_drone and self.should_step_down_as_master():
+                print(f"🔄 Discovery response from {sender_id} triggers master step-down")
+                self.drone_network.master_drone_id = None
+                self.initiate_master_election()
     
     def handle_heartbeat(self, packet: DronePacket):
         """Handle heartbeat packets"""
@@ -210,6 +238,13 @@ class EnhancedStateController:
         sender_drone = self.drone_network.get_drone(sender_id)
         if sender_drone:
             sender_drone.update_last_seen()
+        
+        # If we are master, check if this heartbeat is from a better candidate
+        if (self.drone_network.self_drone.status == DroneStatus.MASTER and 
+            sender_drone and not self.election_in_progress):
+            if self.should_step_down_as_master():
+                if not self.quiet_mode:
+                    print(f"🔄 Heartbeat from {sender_id} triggers master re-evaluation")
         
         # If we receive a heartbeat from a drone claiming to be master, but we think someone else is master
         sender_status = packet.params.get('status', 'unknown')
@@ -502,9 +537,15 @@ class EnhancedStateController:
                 master_offline = True
                 offline_reason = f"no master heartbeat for {current_time - self.last_master_heartbeat_time:.1f}s"
             
-            # If we are master, ignore offline checks
+            # If we are master, check if we should step down for a better candidate
             if self.drone_network.self_drone.status == DroneStatus.MASTER:
-                master_offline = False
+                if self.should_step_down_as_master():
+                    print("🔄 Stepping down as master - better candidate available")
+                    self.drone_network.master_drone_id = None
+                    self.initiate_master_election()
+                    return
+                else:
+                    master_offline = False  # We're master and shouldn't step down
             
             
             if master_offline:
@@ -525,6 +566,35 @@ class EnhancedStateController:
                     self.initiate_master_election()
                 else:
                     print("No other drones available for re-election")
+    
+    def should_step_down_as_master(self):
+        """Check if current master should step down for a better candidate"""
+        if self.drone_network.self_drone.status != DroneStatus.MASTER:
+            return False
+        
+        # Get all online drones including ourselves
+        online_drones = self.drone_network.get_online_drones()
+        current_master_id = self.drone_network.get_self_id()
+        
+        # Check if there's a better candidate than the current master
+        for drone in online_drones:
+            if drone.drone_id == current_master_id:
+                continue  # Skip ourselves
+                
+            # Apply election criteria: battery level, then lower ID wins
+            current_master = self.drone_network.self_drone
+            
+            # Compare election scores
+            candidate_score = (drone.battery_level, -drone.drone_id)
+            master_score = (current_master.battery_level, -current_master.drone_id)
+            
+            if candidate_score > master_score:
+                print(f"💡 Found better candidate: drone {drone.drone_id} "
+                      f"(battery: {drone.battery_level}, ID: {drone.drone_id}) vs "
+                      f"current master (battery: {current_master.battery_level}, ID: {current_master.drone_id})")
+                return True
+        
+        return False
     
     def handle_ack(self, packet: DronePacket):
         """Handle acknowledgment packets"""
