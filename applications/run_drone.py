@@ -15,6 +15,7 @@ import sys
 import time
 from controllers.enhanced_state_controller import EnhancedStateController
 from core.drone_state import DroneStatus
+from controllers.movement_state_controller import MovementStateController
 
 def main():
     drone_id = None
@@ -43,6 +44,7 @@ def main():
         
         # Main control loop
         while True:
+            old_network_state = controller.query_network_state()
             current_time = time.time()
             
             # Process incoming packets
@@ -78,6 +80,12 @@ def main():
             # Display detailed network state if we're master
             if controller.drone_network.self_drone.status == DroneStatus.MASTER:
                 controller.print_network_state()
+                # network_state = controller.query_network_state()
+                # # Use a movement controller to simulate position updates
+                # movement_controller = MovementStateController(network_state, old_network_state)
+                # new_positions = movement_controller.update_slave_positions()
+                # if new_positions:
+                #     print(f"Updated slave positions: {new_positions}")
             else:
                 pass
             

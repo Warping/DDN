@@ -886,6 +886,7 @@ class EnhancedStateController:
             # Update network status based on master election results
             self.drone_network.update_network_status()
     
+    @DeprecationWarning
     def control_loop(self):
         """Main control loop for enhanced state management"""
         print("Starting enhanced control loop...")
