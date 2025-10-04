@@ -24,7 +24,7 @@ class DroneState:
         self.status = DroneStatus.SEEKING
         self.last_seen = time.time()
         self.discovery_time = time.time()
-        self.position = (random.uniform(-5, 5), random.uniform(-5, 5), 0)  # Random initial position
+        self.position = (random.uniform(-2, 2), random.uniform(-2, 2), 0)  # Random initial position
         self.battery_level = 100.0
         self.is_self = False
         self.ping_count = 0
@@ -48,11 +48,11 @@ class DroneState:
         """Get how long ago this drone was discovered"""
         return time.time() - self.discovery_time
     
-    def update_position(self, x: float, y: float, z: float):
+    def update_position(self, x: float, y: float, z: float) -> list[float]:
         """Update drone position coordinates"""
         if (x, y, z) == (0.0, 0.0, 0.0):
             print(f"🚨🚨🚨 CRITICAL ERROR: update_position called with (0,0,0) for drone {self.drone_id} 🚨🚨🚨")
-            return
+            return None
         old_position = self.position
         self.position = (x, y, z)
         self.update_last_seen()
@@ -63,8 +63,13 @@ class DroneState:
                 print(f"🚨🚨🚨 CRITICAL: Self drone {self.drone_id} position RESET to (0,0,0) from {old_position} 🚨🚨🚨")
                 import traceback
                 traceback.print_stack()
+                return None
             elif old_position != self.position:
                 print(f"📍 Self drone {self.drone_id} position changed: {old_position} -> {self.position}")
+            elif old_position == self.position:
+                pass
+                # print(f"ℹ️ Self drone {self.drone_id} position unchanged: {self.position}")
+        return self.position
     
     def update_battery(self, level: float):
         """Update battery level (0-100)"""

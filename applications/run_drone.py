@@ -71,21 +71,30 @@ def main():
             if (controller.drone_network.self_drone.status == DroneStatus.MASTER and
                 current_time - controller.last_network_sync_time > controller.network_sync_interval):
                 
+                network_state = controller.query_network_state()
+                # Use a movement controller to simulate position updates
+                movement_controller = MovementStateController(network_state, old_network_state)
+                # controller.print_network_state()
+                new_positions = movement_controller.update_slave_positions()
+                if new_positions:
+                    print(f"Update slave positions: {new_positions}")
+                    controller.update_slave_positions(new_positions)
+                else:
+                    print("No position updates needed")
+                
                 controller.share_network_status()
+                
+                controller.print_network_state()
+                
                 controller.last_network_sync_time = current_time
             
             # Update state (includes master election logic)
             controller.update_state_based_on_network()
             
             # Display detailed network state if we're master
+            # controller.print_network_state()
             if controller.drone_network.self_drone.status == DroneStatus.MASTER:
-                controller.print_network_state()
-                # network_state = controller.query_network_state()
-                # # Use a movement controller to simulate position updates
-                # movement_controller = MovementStateController(network_state, old_network_state)
-                # new_positions = movement_controller.update_slave_positions()
-                # if new_positions:
-                #     print(f"Updated slave positions: {new_positions}")
+                pass
             else:
                 pass
             

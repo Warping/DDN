@@ -145,6 +145,8 @@ class EnhancedStateController:
             self.handle_master_election(packet)
         elif action == "ACK":
             self.handle_ack(packet)
+        elif action == "UPDATE":
+            self.handle_update(packet)
         
         # Update network status after processing
         self.drone_network.update_network_status()
@@ -157,6 +159,38 @@ class EnhancedStateController:
                 if not self.quiet_mode:
                     print(f"� New drone {sender_id} triggers master re-evaluation")
     
+    def handle_update(self, packet: DronePacket):
+        """Handle update packets from other drones"""
+        sender_id = packet.drone_id
+        receiver_id = packet.destination_id
+        params = packet.params
+        
+        # Only process updates from the master if we're a slave
+        if (sender_id == self.drone_network.master_drone_id and receiver_id == self.drone_network.get_self_id() and
+            self.drone_network.self_drone.status == DroneStatus.SLAVE):
+            
+            # Check for position update command
+            if params.get("command_type") == "POSITION_UPDATE":
+                new_position = params.get("position")
+                if new_position:
+                    # Update our position
+                    x, y, z = new_position
+                    actual_position = self.drone_network.self_drone.update_position(x, y, z)
+                    if actual_position:
+                        print(f"Position updated by master to {actual_position}")
+                        # Send acknowledgment
+                        DronePacket().ack(
+                            self.bh, self.drone_network.get_self_id(), sender_id,
+                            self.drone_network.self_drone.status.value,
+                            {
+                                "ack_type": "POSITION_UPDATE",
+                                "position": actual_position,
+                                "target_position": new_position,
+                                "acknowledged": True
+                            }
+                        )
+
+
     def handle_ping(self, packet: DronePacket):
         """Handle ping packets"""
         sender_id = packet.drone_id
@@ -262,25 +296,154 @@ class EnhancedStateController:
     def handle_network_status(self, packet: DronePacket):
         """Handle network status sharing packets"""
         sender_id = packet.drone_id
-        known_drones = packet.params.get("known_drones", [])
-        master_id = packet.params.get("master_id")
         
-        if not self.quiet_mode:
-            print(f"Received network status from drone {sender_id}: {len(known_drones)} known drones, master: {master_id}")
+        # Check for optimized format (most bandwidth-efficient)
+        if "opt" in packet.params and packet.params.get("opt") and "d" in packet.params:
+            # Get master ID from optimized parameter name
+            master_id = packet.params.get("m")
+            
+            # Process optimized network state
+            opt_drones = packet.params.get("d", [])
+            if not self.quiet_mode:
+                print(f"Received optimized network status from drone {sender_id}: {len(opt_drones)} known drones, master: {master_id}")
+            
+            # Update our knowledge of the network with positions
+            for drone_info in opt_drones:
+                drone_id = drone_info.get('i')  # Short key for id
+                position = drone_info.get('p')  # Short key for position
+                
+                if drone_id != self.drone_network.get_self_id() and position:
+                    # Update position only
+                    if drone_id in self.drone_network.known_drones:
+                        drone = self.drone_network.known_drones[drone_id]
+                        x, y, z = position
+                        drone.update_position(x, y, z)
+                        drone.update_last_seen()
+                    else:
+                        # New drone with position
+                        self.drone_network.add_or_update_drone(
+                            drone_id, 
+                            DroneStatus.CONNECTED,
+                            position
+                        )
         
-        # Update our knowledge of the network
-        for drone_info in known_drones:
-            if drone_info != self.drone_network.get_self_id():
-                # Only add new drones or update status, don't change position without position data
-                if drone_info not in self.drone_network.known_drones:
-                    # New drone - add it with default status
-                    self.drone_network.add_or_update_drone(drone_info, DroneStatus.CONNECTED)
-                else:
-                    # Existing drone - just update status and timestamp, preserve position
-                    existing_drone = self.drone_network.known_drones[drone_info]
-                    existing_drone.status = DroneStatus.CONNECTED
-                    existing_drone.update_last_seen()
+        # Check for positions-only format (legacy)
+        elif "positions_only" in packet.params and packet.params.get("positions_only") and "drones" in packet.params:
+            # Get master ID
+            master_id = packet.params.get("master_id")
+            
+            # Process positions-only network state
+            position_drones = packet.params.get("drones", [])
+            if not self.quiet_mode:
+                print(f"Received positions-only network status from drone {sender_id}: {len(position_drones)} known drones, master: {master_id}")
+            
+            # Update our knowledge of the network with positions
+            for drone_info in position_drones:
+                drone_id = drone_info.get('id')
+                position = drone_info.get('pos')
+                
+                if drone_id != self.drone_network.get_self_id() and position:
+                    # Update position only
+                    if drone_id in self.drone_network.known_drones:
+                        drone = self.drone_network.known_drones[drone_id]
+                        x, y, z = position
+                        drone.update_position(x, y, z)
+                        drone.update_last_seen()
+                    else:
+                        # New drone with position
+                        self.drone_network.add_or_update_drone(
+                            drone_id, 
+                            DroneStatus.CONNECTED,
+                            position
+                        )
         
+        # Check for compact format
+        elif "compact_state" in packet.params and packet.params.get("compact_state") and "drones" in packet.params:
+            # Process compact network state
+            compact_drones = packet.params.get("drones", [])
+            if not self.quiet_mode:
+                print(f"Received compact network status from drone {sender_id}: {len(compact_drones)} known drones, master: {master_id}")
+            
+            # Update our knowledge of the network with compact information
+            for drone_info in compact_drones:
+                drone_id = drone_info.get('id')
+                if drone_id != self.drone_network.get_self_id():
+                    status = DroneStatus(drone_info.get('st', 'connected'))
+                    position = drone_info.get('pos')
+                    battery_level = drone_info.get('bat')
+                    signal_strength = drone_info.get('sig', 0.0)
+                    
+                    # Update or add the drone with available information
+                    if position and battery_level:
+                        self.drone_network.add_or_update_drone(
+                            drone_id, status, position, battery_level, signal_strength
+                        )
+                    else:
+                        # Just update status if position/battery not provided
+                        if drone_id in self.drone_network.known_drones:
+                            drone = self.drone_network.known_drones[drone_id]
+                            drone.status = status
+                            drone.update_last_seen()
+                        else:
+                            self.drone_network.add_or_update_drone(drone_id, status)
+        
+        # Check for old comprehensive format
+        elif "known_drones" in packet.params:
+            network_state = packet.params.get("known_drones", [])
+            
+            # Check if we received the comprehensive network state
+            if isinstance(network_state, dict) and 'all_drones' in network_state:
+                # Process comprehensive network state
+                all_drones = network_state.get('all_drones', [])
+                if not self.quiet_mode:
+                    print(f"Received comprehensive network status from drone {sender_id}: {len(all_drones)} known drones, master: {master_id}")
+                
+                # Update our knowledge of the network with detailed information
+                for drone_info in all_drones:
+                    drone_id = drone_info.get('drone_id')
+                    if drone_id != self.drone_network.get_self_id():
+                        status = DroneStatus(drone_info.get('status', 'connected'))
+                        position = drone_info.get('position')
+                        battery_level = drone_info.get('battery_level')
+                        signal_strength = drone_info.get('signal_strength', 0.0)
+                        
+                        # Update or add the drone with all available information
+                        if position and battery_level:
+                            self.drone_network.add_or_update_drone(
+                                drone_id, status, position, battery_level, signal_strength
+                            )
+                        else:
+                            # Just update status if position/battery not provided
+                            if drone_id in self.drone_network.known_drones:
+                                drone = self.drone_network.known_drones[drone_id]
+                                drone.status = status
+                                drone.update_last_seen()
+                            else:
+                                self.drone_network.add_or_update_drone(drone_id, status)
+            else:
+                # Handle the basic format (just IDs)
+                if not self.quiet_mode:
+                    print(f"Received basic network status from drone {sender_id}: {len(network_state)} known drones, master: {master_id}")
+                
+                # Update our knowledge of the network (old way)
+                for drone_id in network_state:
+                    if drone_id != self.drone_network.get_self_id():
+                        # Only add new drones or update status, don't change position without position data
+                        if drone_id not in self.drone_network.known_drones:
+                            # New drone - add it with default status
+                            self.drone_network.add_or_update_drone(drone_id, DroneStatus.CONNECTED)
+                        else:
+                            # Existing drone - just update status and timestamp, preserve position
+                            existing_drone = self.drone_network.known_drones[drone_id]
+                            existing_drone.status = DroneStatus.CONNECTED
+                            existing_drone.update_last_seen()
+        
+        # Get master ID based on format
+        if "opt" in packet.params:
+            master_id = packet.params.get("m")
+        else:
+            master_id = packet.params.get("master_id")
+            
         # Update master information if provided
         if master_id and master_id != self.drone_network.master_drone_id:
             if not self.quiet_mode:
@@ -290,23 +453,22 @@ class EnhancedStateController:
     
     def share_network_status(self):
         """Share our view of the network with other drones"""
-        online_drones = self.drone_network.get_online_drones()
-        known_drone_ids = [drone.drone_id for drone in online_drones]
+        # Update our own last_seen timestamp
+        self.drone_network.self_drone.update_last_seen()
         
-        # Include ourselves in the list
-        if self.drone_network.get_self_id() not in known_drone_ids:
-            known_drone_ids.append(self.drone_network.get_self_id())
+        # Use query_network_state to get comprehensive network information
+        network_state = self.query_network_state()
         
         packet = DronePacket()
         packet.network_status(
             self.bh,
             self.drone_network.get_self_id(),
             self.drone_network.self_drone.status.value,
-            known_drone_ids,
+            network_state,
             self.drone_network.master_drone_id
         )
         if not self.quiet_mode:
-            print(f"Shared network status: {len(known_drone_ids)} drones, master: {self.drone_network.master_drone_id}")
+            print(f"Shared comprehensive network status: {len(network_state['all_drones'])} drones, master: {self.drone_network.master_drone_id}")
     
     def handle_id_conflict_resolution(self, packet: DronePacket):
         """Handle ID conflict resolution announcements"""
@@ -799,12 +961,35 @@ class EnhancedStateController:
     def handle_ack(self, packet: DronePacket):
         """Handle acknowledgment packets"""
         sender_id = packet.drone_id
+        params = packet.params
         
         # Update response count for reliability tracking
         sender_drone = self.drone_network.get_drone(sender_id)
         if sender_drone:
             sender_drone.increment_response()
-    
+            
+        # Handle ack of position update commands
+        # Check if we are the master and the sender is a known slave
+        if (self.drone_network.self_drone.status == DroneStatus.MASTER and
+            sender_drone and sender_drone.status == DroneStatus.SLAVE):
+            if params.get("ack_type") == "POSITION_UPDATE":
+                # Process acknowledgment of position update
+                acknowledged = params.get("acknowledged", False)
+                if acknowledged:
+                    actual_position = params.get("position", None)
+                    target_position = params.get("target_position", None)
+                if actual_position and target_position:
+                    print(f"Position update acknowledged by drone {sender_id}: {actual_position}")
+                    print(f"  Target position was: {target_position}")
+                    # Update our record of the drone's position
+                    if sender_drone:
+                        sender_drone.update_position(*actual_position)
+                        sender_drone.update_last_seen()
+                else:
+                    print(f"Position update acknowledged by drone {sender_id} with no position info")
+            else:
+                print(f"Position update NOT acknowledged by drone {sender_id}")
+
     def send_discovery_announcement(self):
         """Send discovery announcement to find other drones"""
         # Update our own last_seen timestamp
@@ -851,6 +1036,39 @@ class EnhancedStateController:
         
         print(f"Shared network status: {len(known_drone_ids)} known drones")
     
+    def send_move_command(self, slave_id, target_position):
+        """Send move command to drone in the network"""
+        if self.drone_network.self_drone.status != DroneStatus.MASTER:
+            print("Only the MASTER drone can send move commands")
+            return
+        current_state = self.drone_network.self_drone.status.value
+        master_id = self.drone_network.get_self_id()
+        update_info = {
+            "position": target_position,
+            "command_type": "POSITION_UPDATE",  # Custom identifier for this type of update
+            "timestamp": time.time()
+        }
+        
+        DronePacket().update(
+            self.bh,
+            master_id,
+            slave_id,
+            current_state,
+            update_info
+        )
+        print(f"Sent move command to drone {slave_id} to position {target_position}")
+    
+    def update_slave_positions(self, new_positions):
+        for slave_id, position in new_positions.items():
+            slave_drone = self.drone_network.get_drone(slave_id)
+            if not slave_drone:
+                continue
+            
+            # current_pos = slave_drone.position
+            # new_pos = tuple(c + p for c, p in zip(current_pos,  position))
+            # slave_drone.position = new_pos
+            self.send_move_command(slave_id, position)
+
     def update_state_based_on_network(self):
         """Update drone state based on current network conditions"""
         # Ensure self drone timestamp stays current during active operations
