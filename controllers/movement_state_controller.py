@@ -75,6 +75,8 @@ class MovementStateController():
                 closest_point = self.find_closest_point(pos, available_points)
                 pairing[drone_id] = closest_point
                 available_points.remove(closest_point)
+                if pairing[drone_id] == positions[drone_id]:
+                    pairing[drone_id] = None  # No movement needed if already at the point
             else:
                 pairing[drone_id] = None  # No available point
         

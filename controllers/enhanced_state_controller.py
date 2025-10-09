@@ -1063,6 +1063,8 @@ class EnhancedStateController:
     
     def update_slave_positions(self, new_positions):
         for slave_id, position in new_positions.items():
+            if not position:
+                continue
             slave_drone = self.drone_network.get_drone(slave_id)
             if not slave_drone:
                 continue
