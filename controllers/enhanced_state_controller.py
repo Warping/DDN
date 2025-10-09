@@ -21,7 +21,7 @@ class EnhancedStateController:
     def __init__(self, drone_id=None, quiet_mode=False):
         self.drone_network = DroneNetwork(drone_id)
         self.bh = BroadcastHandler()
-        self.time_step = 0.1  # Base time step in seconds - increased from 3.0
+        self.time_step = 0.02  # Base time step in seconds - increased from 3.0
         self.discovery_interval = 5.0  # Discovery announcement interval - increased from 5.0
         self.heartbeat_interval = 10.0  # Heartbeat interval - increased from 10.0
         self.network_sync_interval = 15.0  # Network status sharing interval - increased from 15.0
@@ -362,7 +362,8 @@ class EnhancedStateController:
             # Process compact network state
             compact_drones = packet.params.get("drones", [])
             if not self.quiet_mode:
-                print(f"Received compact network status from drone {sender_id}: {len(compact_drones)} known drones, master: {master_id}")
+                pass
+                # print(f"Received compact network status from drone {sender_id}: {len(compact_drones)} known drones, master: {master_id}")
             
             # Update our knowledge of the network with compact information
             for drone_info in compact_drones:
@@ -396,7 +397,8 @@ class EnhancedStateController:
                 # Process comprehensive network state
                 all_drones = network_state.get('all_drones', [])
                 if not self.quiet_mode:
-                    print(f"Received comprehensive network status from drone {sender_id}: {len(all_drones)} known drones, master: {master_id}")
+                    pass
+                    # print(f"Received comprehensive network status from drone {sender_id}: {len(all_drones)} known drones, master: {master_id}")
                 
                 # Update our knowledge of the network with detailed information
                 for drone_info in all_drones:
@@ -423,7 +425,8 @@ class EnhancedStateController:
             else:
                 # Handle the basic format (just IDs)
                 if not self.quiet_mode:
-                    print(f"Received basic network status from drone {sender_id}: {len(network_state)} known drones, master: {master_id}")
+                    pass
+                    # print(f"Received basic network status from drone {sender_id}: {len(network_state)} known drones, master: {master_id}")
                 
                 # Update our knowledge of the network (old way)
                 for drone_id in network_state:

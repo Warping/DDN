@@ -66,7 +66,7 @@ class MasterDeathTest:
             
             for drone_id in drone_ids:
                 self.start_drone(drone_id)
-                time.sleep(1.6181)  # Stagger startup
+                time.sleep(10)  # Stagger startup
             
             print(f"\n⏳ Waiting 20 seconds for network formation...")
             print("   Expected: Drone 1001 should become master (lowest ID)")

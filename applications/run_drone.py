@@ -98,7 +98,7 @@ def main():
             else:
                 pass
             
-            time.sleep(0.1)  # Small delay to prevent high CPU usage
+            time.sleep(0.01)  # Small delay to prevent high CPU usage
             
     except KeyboardInterrupt:
         print(f"\n🛑 Stopping drone {controller.drone_network.get_self_id()}")

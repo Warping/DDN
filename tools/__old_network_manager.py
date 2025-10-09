@@ -19,7 +19,7 @@ import random
 import threading
 from typing import Optional
 from controllers.enhanced_state_controller import EnhancedStateController
-from visualization.drone_visualizer import DroneNetworkVisualizer, PassiveNetworkMonitor
+from visualization.__old_drone_visualizer import DroneNetworkVisualizer, PassiveNetworkMonitor
 from core.drone_state import DroneStatus
 
 class NetworkManager:
@@ -133,7 +133,7 @@ class NetworkManager:
     
     def start_visualizer(self):
         """Start real-time visualization using passive monitor"""
-        from visualization.drone_visualizer import PassiveNetworkMonitor, DroneNetworkVisualizer
+        from visualization.__old_drone_visualizer import PassiveNetworkMonitor, DroneNetworkVisualizer
         
         if self.visualizer is None:
             # Create a passive monitor for visualization
