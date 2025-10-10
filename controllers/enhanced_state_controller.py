@@ -19,13 +19,12 @@ class EnhancedStateController:
     """
     
     def __init__(self, drone_id=None, quiet_mode=False):
-        self.drone_network = DroneNetwork(drone_id)
         self.bh = BroadcastHandler()
-        self.time_step = 0.02  # Base time step in seconds - increased from 3.0
+        self.time_step = 0.2  # Base time step in seconds - increased from 3.0
         self.discovery_interval = 5.0  # Discovery announcement interval - increased from 5.0
         self.heartbeat_interval = 10.0  # Heartbeat interval - increased from 10.0
-        self.network_sync_interval = 15.0  # Network status sharing interval - increased from 15.0
-        self.master_election_interval = 8.0  # Master election check interval - increased from 8.0
+        self.network_sync_interval = 10.0  # Network status sharing interval - increased from 15.0
+        self.master_election_interval = 30.0  # Master election check interval - increased from 8.0
         self.master_timeout = 25.0  # Time to wait before considering master offline - reduced from 25.0
         self.quiet_mode = quiet_mode  # Suppress frequent status messages
         
@@ -36,10 +35,12 @@ class EnhancedStateController:
         self.master_election_interval *= self.time_step
         self.master_timeout *= self.time_step
         
+        self.drone_network = DroneNetwork(self.master_timeout, drone_id)
+        
         # Timing variables
-        self.last_discovery_time = 0
-        self.last_heartbeat_time = 0
-        self.last_network_sync_time = 0
+        self.last_discovery_time = 0.0
+        self.last_heartbeat_time = 0.0
+        self.last_network_sync_time = 0.0
         self.last_cleanup_time = 0
         self.last_status_display_time = 0  # Add this to prevent spam
         self.last_master_check_time = 0  # Master election check timing
@@ -212,6 +213,10 @@ class EnhancedStateController:
         """Handle discovery announcement packets"""
         sender_id = packet.drone_id
         
+        #Only respond if we are master or have no master
+        if (self.drone_network.self_drone.status != DroneStatus.MASTER and
+            self.drone_network.master_drone_id is not None):
+            return
         # Respond to discovery announcement
         DronePacket().discovery_response(
             self.bh, self.drone_network.get_self_id(), sender_id,
@@ -694,7 +699,7 @@ class EnhancedStateController:
             if not master_drone:
                 master_offline = True
                 offline_reason = "master not found in known drones"
-            elif not master_drone.is_online(self.master_timeout):
+            elif not master_drone.is_online():
                 master_offline = True
                 offline_reason = f"master last seen {current_time - master_drone.last_seen:.1f}s ago"
             elif (current_time - self.last_master_heartbeat_time > self.master_timeout):
@@ -720,9 +725,9 @@ class EnhancedStateController:
                 self.drone_network.master_drone_id = None
                 
                 # Remove dead master from known drones if it's really gone
-                if master_drone and not master_drone.is_online(self.master_timeout):
+                if master_drone and not master_drone.is_online():
                     print(f"🗑️ Removing dead master {old_master_id} from known drones")
-                    self.drone_network.remove_drone(old_master_id)
+                    # self.drone_network.remove_drone(old_master_id)
                 
                 # Start re-election if we have other drones
                 if (self.drone_network.get_online_drone_count() >= 1 and 
@@ -1109,68 +1114,68 @@ class EnhancedStateController:
             # Update network status based on master election results
             self.drone_network.update_network_status()
     
-    @DeprecationWarning
-    def control_loop(self):
-        """Main control loop for enhanced state management"""
-        print("Starting enhanced control loop...")
+    # @DeprecationWarning
+    # def control_loop(self):
+    #     """Main control loop for enhanced state management"""
+    #     print("Starting enhanced control loop...")
         
-        while True:
-            current_time = time.time()
+    #     while True:
+    #         current_time = time.time()
             
-            # Process incoming packets
-            self.process_incoming_packets()
+    #         # Process incoming packets
+    #         self.process_incoming_packets()
             
-            # Send discovery announcements when seeking
-            if (self.drone_network.self_drone.status == DroneStatus.SEEKING and
-                current_time - self.last_discovery_time > self.discovery_interval and
-                self.discovery_attempts < self.max_discovery_attempts):
+    #         # Send discovery announcements when seeking
+    #         if (self.drone_network.self_drone.status == DroneStatus.SEEKING and
+    #             current_time - self.last_discovery_time > self.discovery_interval and
+    #             self.discovery_attempts < self.max_discovery_attempts):
                 
-                self.send_discovery_announcement()
-                self.last_discovery_time = current_time
+    #             self.send_discovery_announcement()
+    #             self.last_discovery_time = current_time
             
-            # Send periodic heartbeats when connected
-            if (self.drone_network.self_drone.status in [DroneStatus.CONNECTED, DroneStatus.MASTER, DroneStatus.SLAVE] and
-                current_time - self.last_heartbeat_time > self.heartbeat_interval):
+    #         # Send periodic heartbeats when connected
+    #         if (self.drone_network.self_drone.status in [DroneStatus.CONNECTED, DroneStatus.MASTER, DroneStatus.SLAVE] and
+    #             current_time - self.last_heartbeat_time > self.heartbeat_interval):
                 
-                self.send_heartbeat()
-                self.last_heartbeat_time = current_time
+    #             self.send_heartbeat()
+    #             self.last_heartbeat_time = current_time
             
-            # Share network status periodically
-            if (self.drone_network.network_established and
-                current_time - self.last_network_sync_time > self.network_sync_interval):
+    #         # Share network status periodically
+    #         if (self.drone_network.network_established and
+    #             current_time - self.last_network_sync_time > self.network_sync_interval):
                 
-                self.send_network_status()
-                self.last_network_sync_time = current_time
+    #             self.send_network_status()
+    #             self.last_network_sync_time = current_time
             
-            # Cleanup offline drones more frequently to detect master death faster
-            if current_time - self.last_cleanup_time > 15.0:  # Every 15 seconds instead of 60
-                initial_count = self.drone_network.get_drone_count()
-                self.drone_network.cleanup_offline_drones(timeout=self.master_timeout)
-                final_count = self.drone_network.get_drone_count()
+    #         # Cleanup offline drones more frequently to detect master death faster
+    #         if current_time - self.last_cleanup_time > 15.0 * self.time_step:  # Every 15 seconds instead of 60
+    #             initial_count = self.drone_network.get_drone_count()
+    #             self.drone_network.cleanup_offline_drones(timeout=self.master_timeout)
+    #             final_count = self.drone_network.get_drone_count()
                 
-                if final_count < initial_count:
-                    removed_count = initial_count - final_count
-                    print(f"🗑️ Cleaned up {removed_count} offline drones")
+    #             if final_count < initial_count:
+    #                 removed_count = initial_count - final_count
+    #                 print(f"🗑️ Cleaned up {removed_count} offline drones")
                     
-                    # If master was removed during cleanup, trigger re-election
-                    if (self.drone_network.master_drone_id and 
-                        not self.drone_network.get_drone(self.drone_network.master_drone_id)):
-                        print(f"💀 Master {self.drone_network.master_drone_id} was cleaned up - clearing master")
-                        self.drone_network.master_drone_id = None
+    #                 # If master was removed during cleanup, trigger re-election
+    #                 if (self.drone_network.master_drone_id and 
+    #                     not self.drone_network.get_drone(self.drone_network.master_drone_id)):
+    #                     print(f"💀 Master {self.drone_network.master_drone_id} was cleaned up - clearing master")
+    #                     self.drone_network.master_drone_id = None
                 
-                self.last_cleanup_time = current_time
+    #             self.last_cleanup_time = current_time
             
-            # Update state based on network conditions
-            self.update_state_based_on_network()
+    #         # Update state based on network conditions
+    #         self.update_state_based_on_network()
             
-            # Display status periodically (every 10 seconds, but only once per interval)
-            # Skip frequent displays in quiet mode
-            if not self.quiet_mode and current_time - self.last_status_display_time > 10.0:
-                self.display_status()
-                self.last_status_display_time = current_time
+    #         # Display status periodically (every 10 seconds, but only once per interval)
+    #         # Skip frequent displays in quiet mode
+    #         if not self.quiet_mode and current_time - self.last_status_display_time > 10.0:
+    #             self.display_status()
+    #             self.last_status_display_time = current_time
             
-            # Sleep to prevent excessive CPU usage
-            time.sleep(0.1)
+    #         # Sleep to prevent excessive CPU usage
+    #         time.sleep(0.1)
     
     def display_status(self):
         """Display current network status"""

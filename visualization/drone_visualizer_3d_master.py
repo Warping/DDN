@@ -24,7 +24,8 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 import RNS
-from core.drone_state import DroneStatus, DroneState
+from core.drone_state import DroneStatus
+from controllers.enhanced_state_controller import EnhancedStateController
 
 try:
     import matplotlib.pyplot as plt
@@ -48,6 +49,9 @@ class PassiveBroadcastHandler:
         try:
             # Use the same config path as the drones
             self.reticulum = RNS.Reticulum("../.reticulum_config")
+            # Get MTU from config if available
+            mtu = self.reticulum.MTU
+            print(f"ℹ️  RNS MTU set to {mtu} bytes")
             print("✅ RNS initialized successfully for 3D visualizer")
         except Exception as e:
             print(f"⚠️  RNS initialization warning: {e}")
@@ -90,7 +94,7 @@ class DroneData:
     Simple drone data container for 3D visualization
     """
     
-    def __init__(self, drone_id: int):
+    def __init__(self, timeout, drone_id: int):
         self.drone_id = drone_id
         self.position = None
         self.old_position = None
@@ -100,6 +104,7 @@ class DroneData:
         self.battery_level = 100.0
         self.signal_strength = 0.0
         self.offline_since = None  # Track when a drone went offline
+        self.default_timeout = timeout  # Default timeout for online status
         
     def update(self, position=None, status=None, battery_level=None, signal_strength=None):
         if position:
@@ -131,15 +136,15 @@ class DroneData:
         if status != DroneStatus.OFFLINE:
             self.last_seen = time.time()
     
-    def is_online(self, timeout=10.0):
-        return (time.time() - self.last_seen) < timeout
+    def is_online(self):
+        return (time.time() - self.last_seen) < self.default_timeout
 
 class MasterBasedDroneVisualizer:
     """
     Real-time 3D drone network visualizer that only uses master's network status packets
     """
     
-    def __init__(self, debug_mode=False):
+    def __init__(self, timeout, debug_mode=False):
         self.drones: Dict[int, DroneData] = {}
         self.broadcast_handler = PassiveBroadcastHandler()
         self.running = False
@@ -148,6 +153,7 @@ class MasterBasedDroneVisualizer:
         self.last_update_time = 0
         self.last_master_packet_time = 0
         self.debug_mode = debug_mode  # Add debug mode flag
+        self.default_timeout = timeout  # Seconds before a drone is considered offline
         
         # Visualization settings
         self.colors = {
@@ -364,7 +370,7 @@ class MasterBasedDroneVisualizer:
                 
                 # Add the master drone
                 if master_id not in self.drones:
-                    self.drones[master_id] = DroneData(master_id)
+                    self.drones[master_id] = DroneData(self.default_timeout, master_id)
                 self.drones[master_id].status = DroneStatus.MASTER
                 self.drones[master_id].update()
                 
@@ -376,7 +382,7 @@ class MasterBasedDroneVisualizer:
                     
                     if drone_id and position:
                         if drone_id not in self.drones:
-                            self.drones[drone_id] = DroneData(drone_id)
+                            self.drones[drone_id] = DroneData(self.default_timeout, drone_id)
                         
                         # Set the appropriate status - if this is the master drone, mark as MASTER
                         status = DroneStatus.MASTER if str(drone_id) == str(master_id) else DroneStatus.SLAVE
@@ -398,7 +404,7 @@ class MasterBasedDroneVisualizer:
                 
                 # Add the master drone
                 if master_id not in self.drones:
-                    self.drones[master_id] = DroneData(master_id)
+                    self.drones[master_id] = DroneData(self.default_timeout, master_id)
                 self.drones[master_id].status = DroneStatus.MASTER
                 self.drones[master_id].update()
                 
@@ -410,7 +416,7 @@ class MasterBasedDroneVisualizer:
                     
                     if drone_id and position:
                         if drone_id not in self.drones:
-                            self.drones[drone_id] = DroneData(drone_id)
+                            self.drones[drone_id] = DroneData(self.default_timeout, drone_id)
                         
                         # Set the appropriate status - if this is the master drone, mark as MASTER
                         status = DroneStatus.MASTER if str(drone_id) == str(master_id) else DroneStatus.SLAVE
@@ -441,7 +447,7 @@ class MasterBasedDroneVisualizer:
                     
                     if drone_id and position:
                         if drone_id not in self.drones:
-                            self.drones[drone_id] = DroneData(drone_id)
+                            self.drones[drone_id] = DroneData(self.default_timeout, drone_id)
                             
                         status_enum = DroneStatus.MASTER if drone_id == master_id else DroneStatus.SLAVE
                         if status:
@@ -483,7 +489,7 @@ class MasterBasedDroneVisualizer:
                         
                         if drone_id and position:
                             if drone_id not in self.drones:
-                                self.drones[drone_id] = DroneData(drone_id)
+                                self.drones[drone_id] = DroneData(self.default_timeout, drone_id)
                                 
                             status_enum = DroneStatus.MASTER if str(drone_id) == str(master_id) else DroneStatus.SLAVE
                             if status_str:
@@ -508,10 +514,10 @@ class MasterBasedDroneVisualizer:
             self.plot_data[status] = {'x': [], 'y': [], 'z': [], 'ids': []}
             
         # Make sure master is shown with correct status
-        if self.current_master_id and self.current_master_id in self.drones:
-            if self.drones[self.current_master_id].status != DroneStatus.MASTER:
-                print(f"⚠️ Correcting master status for drone {self.current_master_id}")
-                self.drones[self.current_master_id].status = DroneStatus.MASTER
+        # if self.current_master_id and self.current_master_id in self.drones:
+        #     if self.drones[self.current_master_id].status != DroneStatus.MASTER:
+        #         print(f"⚠️ Correcting master status for drone {self.current_master_id}")
+        #         self.drones[self.current_master_id].status = DroneStatus.MASTER
         
         # Check for offline drones and update their status
         current_time = time.time()
@@ -733,8 +739,12 @@ def main():
     if args.debug:
         print("🔍 Debug mode enabled - will show detailed packet information")
     
+    # controller = EnhancedStateController()
+    # timeout = controller.master_timeout
+    # del controller  # We only needed it for the timeout value
+    
     # Create visualizer with debug mode if requested
-    visualizer = MasterBasedDroneVisualizer(debug_mode=args.debug)
+    visualizer = MasterBasedDroneVisualizer(5.0, debug_mode=args.debug)
     
     try:
         # Start visualization

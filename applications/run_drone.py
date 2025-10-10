@@ -104,6 +104,10 @@ def main():
         print(f"\n🛑 Stopping drone {controller.drone_network.get_self_id()}")
     except Exception as e:
         print(f"❌ Error: {e}")
+        stacktrace = sys.exc_info()[2]
+        import traceback
+        traceback.print_tb(stacktrace)
+    finally:
         sys.exit(1)
 
 if __name__ == "__main__":

@@ -14,7 +14,8 @@ class MovementStateController():
         for drone in state.get('all_drones', []):
             drone_id = drone['drone_id']
             position = drone.get('position', None)
-            positions[drone_id] = position
+            if drone.get('is_online', False) and position:
+                positions[drone_id] = position
         return positions
     
     def get_velocities(self, current_state, old_state):

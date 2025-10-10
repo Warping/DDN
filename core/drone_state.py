@@ -19,7 +19,7 @@ class DroneState:
     Tracks identity, position, status, and network relationships.
     """
     
-    def __init__(self, drone_id: Optional[int] = None):
+    def __init__(self, timeout, drone_id: Optional[int] = None):
         self.drone_id = drone_id if drone_id is not None else self._generate_random_id()
         self.status = DroneStatus.SEEKING
         self.last_seen = time.time()
@@ -31,6 +31,7 @@ class DroneState:
         self.response_count = 0
         self.signal_strength = 0.0
         self.capabilities = []  # List of drone capabilities
+        self.default_timeout = timeout  # Default timeout for online status in seconds
         
     def _generate_random_id(self) -> int:
         """Generate a random 16-bit ID for the drone"""
@@ -40,15 +41,15 @@ class DroneState:
         """Update the last seen timestamp"""
         self.last_seen = time.time()
         
-    def is_online(self, timeout: float = 30.0) -> bool:
+    def is_online(self) -> bool:
         """Check if drone is considered online based on last seen time"""
-        return (time.time() - self.last_seen) < timeout
+        return (time.time() - self.last_seen) < self.default_timeout
     
     def get_connection_age(self) -> float:
         """Get how long ago this drone was discovered"""
         return time.time() - self.discovery_time
     
-    def update_position(self, x: float, y: float, z: float) -> list[float]:
+    def update_position(self, x: float, y: float, z: float) -> Optional[Tuple[float, float, float]]:
         """Update drone position coordinates"""
         if (x, y, z) == (0.0, 0.0, 0.0):
             print(f"🚨🚨🚨 CRITICAL ERROR: update_position called with (0,0,0) for drone {self.drone_id} 🚨🚨🚨")
@@ -129,14 +130,15 @@ class DroneNetwork:
     Handles discovery, conflict resolution, and network topology.
     """
     
-    def __init__(self, self_drone_id: Optional[int] = None):
-        self.self_drone = DroneState(self_drone_id)
+    def __init__(self, timeout, self_drone_id: Optional[int] = None):
+        self.self_drone = DroneState(timeout, self_drone_id)
         self.self_drone.is_self = True
         print(f"🚁 Created self drone {self.self_drone.drone_id} with initial position {self.self_drone.position}")
         self.known_drones: Dict[int, DroneState] = {self.self_drone.drone_id: self.self_drone}
         self.master_drone_id: Optional[int] = None
         self.network_established = False
         self.id_conflicts: List[Tuple[int, int]] = []  # List of (conflicting_id, resolved_id) pairs
+        self.default_timeout = timeout  # Default timeout for online status in seconds
         
     def get_self_id(self) -> int:
         """Get the ID of this drone"""
@@ -172,7 +174,7 @@ class DroneNetwork:
             drone.update_last_seen()
         else:
             # Add new drone
-            drone = DroneState(drone_id)
+            drone = DroneState(self.default_timeout, drone_id)
             drone.status = status
             # For new drones, use provided position or keep the random default from DroneState.__init__
             if position is not None:
@@ -200,19 +202,19 @@ class DroneNetwork:
         """Get list of all known drones"""
         return list(self.known_drones.values())
     
-    def get_online_drones(self, timeout: float = 30.0) -> List[DroneState]:
+    def get_online_drones(self) -> List[DroneState]:
         """Get list of all online drones"""
-        return [drone for drone in self.known_drones.values() if drone.is_online(timeout)]
+        return [drone for drone in self.known_drones.values() if drone.is_online()]
     
     def get_drone_count(self) -> int:
         """Get total number of known drones"""
         return len(self.known_drones)
     
-    def get_online_drone_count(self, timeout: float = 30.0) -> int:
+    def get_online_drone_count(self) -> int:
         """Get number of online drones"""
-        return len(self.get_online_drones(timeout))
+        return len(self.get_online_drones())
     
-    def cleanup_offline_drones(self, timeout: float = 60.0):
+    def cleanup_offline_drones(self, timeout):
         """Remove drones that have been offline for too long"""
         current_time = time.time()
         offline_drones = [
