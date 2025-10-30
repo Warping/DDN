@@ -91,10 +91,15 @@ class DronePacket:
     def network_status(self, bh : BroadcastHandler, drone_id, current_state, known_drones=None, master_id=None):
         """Share network topology information"""
         # Check if we're receiving a comprehensive network state dictionary
-        if isinstance(known_drones, dict) and 'all_drones' in known_drones:
+        if isinstance(known_drones, dict) and 'drones_by_role' in known_drones:
             # Create a compact version with only essential information
             compact_drones = []
-            for drone in known_drones.get('all_drones', []):
+            all_drones = known_drones['drones_by_role']['masters'] + \
+                         known_drones['drones_by_role']['slaves'] + \
+                         known_drones['drones_by_role']['connected'] + \
+                         known_drones['drones_by_role']['seeking'] + \
+                         known_drones['drones_by_role']['offline']
+            for drone in all_drones:
                 compact_drone = {
                     "id": drone.get('drone_id'),
                     "st": drone.get('status'),

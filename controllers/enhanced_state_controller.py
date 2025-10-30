@@ -262,9 +262,10 @@ class EnhancedStateController:
     def handle_heartbeat(self, packet: DronePacket):
         """Handle heartbeat packets"""
         sender_id = packet.drone_id
+        sender_status = packet.params.get('status', 'unknown')
         
         if not self.quiet_mode:
-            print(f"Received heartbeat from drone {sender_id}")
+            print(f"Received heartbeat from drone {sender_id} (status: {sender_status})")
         
         # If this heartbeat is from the current master, update master heartbeat time
         if sender_id == self.drone_network.master_drone_id:
@@ -272,6 +273,22 @@ class EnhancedStateController:
             if not self.quiet_mode:
                 print(f"📡 Updated master heartbeat time for master {sender_id}")
         
+        # CRITICAL FIX: If sender claims to be master, update our tracking
+        if sender_status == 'master':
+            if self.drone_network.master_drone_id != sender_id:
+                if not self.quiet_mode:
+                    print(f"🔄 Heartbeat indicates {sender_id} is master (was {self.drone_network.master_drone_id})")
+                self.drone_network.master_drone_id = sender_id
+                self.last_master_heartbeat_time = time.time()
+            
+            # Update the sender's status to master in our records
+            if sender_id in self.drone_network.known_drones:
+                sender_drone = self.drone_network.known_drones[sender_id]
+                if sender_drone.status != DroneStatus.MASTER:
+                    if not self.quiet_mode:
+                        print(f"🔄 Updating drone {sender_id} status to MASTER via heartbeat")
+                    sender_drone.status = DroneStatus.MASTER
+                    
         # Update the sender's last_seen time through add_or_update_drone
         # This is already handled in handle_received_packet, but let's ensure it's updated
         sender_drone = self.drone_network.get_drone(sender_id)
@@ -286,7 +303,6 @@ class EnhancedStateController:
                     print(f"🔄 Heartbeat from {sender_id} triggers master re-evaluation")
         
         # If we receive a heartbeat from a drone claiming to be master, but we think someone else is master
-        sender_status = packet.params.get('status', 'unknown')
         if (sender_status == 'master' and 
             self.drone_network.master_drone_id and 
             self.drone_network.master_drone_id != sender_id):
@@ -398,9 +414,14 @@ class EnhancedStateController:
             network_state = packet.params.get("known_drones", [])
             
             # Check if we received the comprehensive network state
-            if isinstance(network_state, dict) and 'all_drones' in network_state:
+            if isinstance(network_state, dict) and 'drones_by_role' in network_state:
                 # Process comprehensive network state
-                all_drones = network_state.get('all_drones', [])
+                # roles = network_state.get('drones_by_roll', [])
+                all_drones = network_state['drones_by_role']['masters'] + \
+                         network_state['drones_by_role']['slaves'] + \
+                         network_state['drones_by_role']['connected'] + \
+                         network_state['drones_by_role']['seeking'] + \
+                         network_state['drones_by_role']['offline']
                 if not self.quiet_mode:
                     pass
                     # print(f"Received comprehensive network status from drone {sender_id}: {len(all_drones)} known drones, master: {master_id}")
@@ -455,9 +476,41 @@ class EnhancedStateController:
         # Update master information if provided
         if master_id and master_id != self.drone_network.master_drone_id:
             if not self.quiet_mode:
-                print(f"Network status indicates master is {master_id}")
+                print(f"Network status indicates master is {master_id} (was {self.drone_network.master_drone_id})")
             self.drone_network.master_drone_id = master_id
             self.last_master_heartbeat_time = time.time()
+            
+        # CRITICAL FIX: Update the sender's status to MASTER if they are the current master
+        if master_id and sender_id == master_id:
+            if sender_id in self.drone_network.known_drones:
+                sender_drone = self.drone_network.known_drones[sender_id]
+                if sender_drone.status != DroneStatus.MASTER:
+                    if not self.quiet_mode:
+                        print(f"🔄 Updating drone {sender_id} status from {sender_drone.status.value} to MASTER")
+                    sender_drone.status = DroneStatus.MASTER
+                    sender_drone.update_last_seen()
+            else:
+                # Add the sender as master if we don't know about them
+                if not self.quiet_mode:
+                    print(f"🆕 Adding new master drone {sender_id}")
+                self.drone_network.add_or_update_drone(sender_id, DroneStatus.MASTER)
+                
+        # CRITICAL FIX: Demote any other drones that think they're masters but aren't the current master
+        if master_id:
+            for drone_id, drone in self.drone_network.known_drones.items():
+                if (drone_id != master_id and 
+                    drone.status == DroneStatus.MASTER and 
+                    drone_id != self.drone_network.get_self_id()):
+                    if not self.quiet_mode:
+                        print(f"🔻 Demoting old master drone {drone_id} to SLAVE (new master is {master_id})")
+                    drone.status = DroneStatus.SLAVE
+                
+        # Also ensure our own status is correct if we're not the master
+        if (master_id and master_id != self.drone_network.get_self_id() and 
+            self.drone_network.self_drone.status == DroneStatus.MASTER):
+            if not self.quiet_mode:
+                print(f"⬇️ Stepping down as master - new master is {master_id}")
+            self.drone_network.self_drone.status = DroneStatus.SLAVE
     
     def share_network_status(self):
         """Share our view of the network with other drones"""
@@ -475,9 +528,7 @@ class EnhancedStateController:
             network_state,
             self.drone_network.master_drone_id
         )
-        if not self.quiet_mode:
-            print(f"Shared comprehensive network status: {len(network_state['all_drones'])} drones, master: {self.drone_network.master_drone_id}")
-    
+        
     def handle_id_conflict_resolution(self, packet: DronePacket):
         """Handle ID conflict resolution announcements"""
         old_id = packet.params.get("old_id")
@@ -845,20 +896,20 @@ class EnhancedStateController:
                 "seeking": seeking_drones,
                 "connected": connected_drones,
                 "offline": offline_drones
-            },
-            "all_drones": [
-                {
-                    "drone_id": drone.drone_id,
-                    "status": drone.status.value,
-                    "position": drone.position,
-                    "battery_level": drone.battery_level,
-                    "last_seen": drone.last_seen,
-                    "age_seconds": current_time - drone.last_seen,
-                    "is_online": drone.is_online(),
-                    "is_self": drone.is_self
-                }
-                for drone in self.drone_network.get_all_drones()
-            ]
+            }
+            # "all_drones": [
+            #     {
+            #         "drone_id": drone.drone_id,
+            #         "status": drone.status.value,
+            #         "position": drone.position,
+            #         "battery_level": drone.battery_level,
+            #         "last_seen": drone.last_seen,
+            #         "age_seconds": current_time - drone.last_seen,
+            #         "is_online": drone.is_online(),
+            #         "is_self": drone.is_self
+            #     }
+            #     for drone in self.drone_network.get_all_drones()
+            # ]
         }
     
     def print_network_state(self):
@@ -953,6 +1004,10 @@ class EnhancedStateController:
         Get a quick summary of network state - useful for debugging
         """
         state = self.query_network_state()
+        all_drones = state['drones_by_role']['masters'] + \
+                    state['drones_by_role']['slaves'] + \
+                    state['drones_by_role']['connected'] + \
+                    state['drones_by_role']['seeking']
         return {
             "timestamp": state["timestamp"],
             "master": state["network_stats"]["current_master_id"],
@@ -962,7 +1017,7 @@ class EnhancedStateController:
             "seeking": [d["drone_id"] for d in state["drones_by_role"]["seeking"]],
             "positions": {
                 d["drone_id"]: d["position"] 
-                for d in state["all_drones"] if d["is_online"]
+                for d in all_drones
             }
         }
     

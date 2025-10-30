@@ -4,6 +4,14 @@ class MovementStateController():
     def __init__(self, network_state, old_network_state):
         self.network_state = network_state
         self.old_network_state = old_network_state
+        self.roles = network_state.get('drones_by_role', {})
+        self.masters = self.roles.get('masters', [])
+        self.slaves = self.roles.get('slaves', [])
+        self.connected = self.roles.get('connected', [])
+        self.seeking = self.roles.get('seeking', [])
+        self.offline = self.roles.get('offline', [])
+        self.all_drones = self.masters + self.slaves + self.connected + self.seeking + self.offline
+        print(f"Initialized MovementStateController with {len(self.all_drones)} drones.")
         # self.positions = {}  # Store positions of drones
         # self.velocities = {}  # Store velocities of drones
     
@@ -11,7 +19,7 @@ class MovementStateController():
         """Extract positions from the network state"""
         print("Getting positions from state...")
         positions = {}
-        for drone in state.get('all_drones', []):
+        for drone in self.all_drones:
             drone_id = drone['drone_id']
             position = drone.get('position', None)
             if drone.get('is_online', False) and position:
