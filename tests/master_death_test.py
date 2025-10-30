@@ -19,7 +19,7 @@ class MasterDeathTest:
         """Start a drone process"""
         try:
             process = subprocess.Popen([
-                sys.executable, "applications/run_drone.py", str(drone_id)
+                sys.executable, "applications/run_drone.py", str(drone_id), "--visualize"
             ])
             self.processes[drone_id] = process
             print(f"✅ Started drone {drone_id} (PID: {process.pid})")
@@ -68,38 +68,38 @@ class MasterDeathTest:
                 self.start_drone(drone_id)
                 time.sleep(7.168)  # Stagger startup
             
-            print(f"\n⏳ Waiting 20 seconds for network formation...")
+            print(f"\n⏳ Waiting 40 seconds for network formation...")
             print("   Expected: Drone 1001 should become master (lowest ID)")
-            time.sleep(20)
+            time.sleep(40)
             
             # Kill the master (1001)
             print(f"\n💀 Phase 2: Killing master drone 1001...")
             self.kill_drone(1001)
             
-            print(f"\n⏳ Waiting 30 seconds for master death detection and re-election...")
+            print(f"\n⏳ Waiting 40 seconds for master death detection and re-election...")
             print("   Expected: Remaining drones should detect 1001 is dead")
             print("   Expected: Drone 1002 should become new master (next lowest ID)")
             print("   Watch for messages like:")
             print("   - 'Master drone 1001 is offline'") 
             print("   - 'Starting master election'")
             print("   - 'Elected as MASTER' or 'elected as MASTER'")
-            time.sleep(30)
+            time.sleep(40)
             
             # Add another drone to test if it joins the new master
             print(f"\n📡 Phase 3: Adding new drone 1006 to test master recognition...")
             self.start_drone(1006)
             
-            print(f"\n⏳ Waiting 15 seconds for new drone integration...")
+            print(f"\n⏳ Waiting 30 seconds for new drone integration...")
             print("   Expected: Drone 1006 should recognize 1002 as master")
-            time.sleep(15)
+            time.sleep(30)
             
             # Kill the new master to test re-election again
             print(f"\n💀 Phase 4: Killing new master drone 1002...")
             self.kill_drone(1002)
             
-            print(f"\n⏳ Final 20 seconds - second re-election test...")
+            print(f"\n⏳ Final 40 seconds - second re-election test...")
             print("   Expected: Drone 1003 should become the new master")
-            time.sleep(20)
+            time.sleep(40)
             
             # Bring back 1001
             print(f"\n📡 Phase 5: Restarting original master drone 1001...")

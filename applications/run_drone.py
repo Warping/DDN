@@ -26,8 +26,8 @@ import threading
 
 def main(visualize=False):
     
-    if visualize:
-        init_visualization()
+    # Don't initialize visualization at start - wait until we become master
+    global visualization_initialized, was_master_last_frame
     
     drone_id = None
     quiet_mode = True  # Default to quiet for testing
@@ -53,6 +53,8 @@ def main(visualize=False):
         controller = EnhancedStateController(drone_id, quiet_mode=quiet_mode)
         
         print(f"✅ Drone {controller.drone_network.get_self_id()} is running")
+        if visualize:
+            print("📊 Visualization will be enabled when this drone becomes master")
         print("Press Ctrl+C to stop")
         
         # Main control loop
@@ -89,12 +91,12 @@ def main(visualize=False):
                 # Use a movement controller to simulate position updates
                 movement_controller = MovementStateController(network_state, old_network_state)
                 # Check if network state has any connected drones or seeking drones before updating positions
-                connected = network_state['drones_by_role']['connected']
-                # controller.print_network_state()
-                new_positions = movement_controller.update_slave_positions()
-                if new_positions:
-                    print(f"Update slave positions: {new_positions}")
-                    controller.update_slave_positions(new_positions)
+                currently_connecting = network_state['drones_by_role']['connected'] + network_state['drones_by_role']['seeking']
+                if not currently_connecting:
+                    new_positions = movement_controller.update_slave_positions()
+                    if new_positions:
+                        print(f"Update slave positions: {new_positions}")
+                        controller.update_slave_positions(new_positions)
                 else:
                     print("No position updates needed")
                 
@@ -105,26 +107,54 @@ def main(visualize=False):
             # Update state (includes master election logic)
             controller.update_state_based_on_network()
             
+            # Check if visualization should be shown (only for masters)
+            is_master = controller.drone_network.self_drone.status == DroneStatus.MASTER
+            
             if visualize:
-                # Get current network state and update visualization
-                current_network_state = controller.query_network_state()
-                run_visualization(current_network_state)
+                # Initialize visualization when becoming master
+                if is_master and not visualization_initialized:
+                    print("👑 Became master - initializing visualization")
+                    init_visualization()
+                    visualization_initialized = True
+                    was_master_last_frame = True
+                
+                # Close visualization when no longer master
+                elif not is_master and visualization_initialized and was_master_last_frame:
+                    print("📉 No longer master - closing visualization")
+                    close_visualization()
+                    visualization_initialized = False
+                    was_master_last_frame = False
+                
+                # Update visualization if we are master
+                if is_master and visualization_initialized:
+                    current_network_state = controller.query_network_state()
+                    run_visualization(current_network_state)
+                    was_master_last_frame = True
+                elif not is_master:
+                    was_master_last_frame = False
+                    
             time.sleep(0.001)  # Small delay to prevent high CPU usage
             
     except KeyboardInterrupt:
         print(f"\n🛑 Stopping drone {controller.drone_network.get_self_id()}")
+        if visualization_initialized:
+            close_visualization()
     except Exception as e:
         print(f"❌ Error: {e}")
         stacktrace = sys.exc_info()[2]
         import traceback
         traceback.print_tb(stacktrace)
     finally:
+        if visualization_initialized:
+            close_visualization()
         sys.exit(1)
         
 # Global variables for visualization
 fig = None
 ax = None
 visualization_lock = threading.Lock()
+visualization_initialized = False
+was_master_last_frame = False
 
 def init_visualization():
     """Set up 3D visualization using matplotlib"""
@@ -133,9 +163,23 @@ def init_visualization():
     # Enable interactive mode
     plt.ion()
     
-    # Create figure and 3D axis
+    # Create figure and 3D axis (don't raise window on creation)
     fig = plt.figure(figsize=(12, 9))
     ax = fig.add_subplot(111, projection='3d')
+    
+    # Configure matplotlib to not steal focus
+    # Get the figure manager and configure window behavior
+    try:
+        manager = plt.get_current_fig_manager()
+        if hasattr(manager, 'window'):
+            # For different backends, prevent window from stealing focus
+            try:
+                # Try to set window to not raise on updates
+                manager.window.attributes('-topmost', 0)  # Tkinter backend
+            except:
+                pass
+    except:
+        pass
     
     # Set up the plot appearance
     ax.set_xlabel('X Position (m)')
@@ -166,6 +210,20 @@ def init_visualization():
     ax.grid(True, alpha=0.3)
     
     print("🎨 3D Visualization initialized")
+
+def close_visualization():
+    """Close and cleanup the visualization window"""
+    global fig, ax, visualization_initialized
+    
+    try:
+        if fig is not None:
+            plt.close(fig)
+            fig = None
+            ax = None
+            visualization_initialized = False
+            print("🎨 Visualization closed")
+    except Exception as e:
+        print(f"⚠️ Error closing visualization: {e}")
 
 def run_visualization(network_state=None):
     """Update the 3D visualization with current drone positions and online status of each drone"""
@@ -301,9 +359,10 @@ def run_visualization(network_state=None):
             ax.text2D(0.02, 0.98, f"Updated: {network_state['query_time']}", 
                      transform=ax.transAxes, fontsize=8, verticalalignment='top')
             
-            # Force update
-            plt.draw()
-            plt.pause(0.01)  # Small pause to allow the plot to update
+            # Force update without stealing focus
+            # Use flush_events instead of pause to avoid window focus issues
+            fig.canvas.draw_idle()  # Request a draw without forcing immediate update
+            fig.canvas.flush_events()  # Process pending GUI events without blocking
             
         except Exception as e:
             print(f"❌ Visualization error: {e}")

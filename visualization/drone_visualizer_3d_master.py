@@ -744,7 +744,7 @@ def main():
     # del controller  # We only needed it for the timeout value
     
     # Create visualizer with debug mode if requested
-    visualizer = MasterBasedDroneVisualizer(5.0, debug_mode=args.debug)
+    visualizer = MasterBasedDroneVisualizer(2.5, debug_mode=args.debug)
     
     try:
         # Start visualization

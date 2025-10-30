@@ -20,9 +20,9 @@ class EnhancedStateController:
     
     def __init__(self, drone_id=None, quiet_mode=False):
         self.bh = BroadcastHandler()
-        self.time_step = 0.2  # Base time step in seconds - increased from 3.0
+        self.time_step = 0.1  # Base time step in seconds - increased from 3.0
         self.discovery_interval = 5.0  # Discovery announcement interval - increased from 5.0
-        self.heartbeat_interval = 10.0  # Heartbeat interval - increased from 10.0
+        self.heartbeat_interval = 5.0  # Heartbeat interval - increased from 10.0
         self.network_sync_interval = 10.0  # Network status sharing interval - increased from 15.0
         self.master_election_interval = 30.0  # Master election check interval - increased from 8.0
         self.master_timeout = 25.0  # Time to wait before considering master offline - reduced from 25.0

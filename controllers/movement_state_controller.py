@@ -116,15 +116,3 @@ class MovementStateController():
         pairings = self.pair_drones_to_positions(all_drone_pos, circle_points)
         print(f"Pairings of drones to positions: {pairings}")
         return pairings
-        # movement_vectors = {}
-        # for drone_id, target_pos in pairings.items():
-        #     current_pos = all_drone_pos.get(drone_id, None)
-        #     if current_pos and target_pos and current_pos != target_pos:
-        #         movement_vector = self.calc_vector(current_pos, target_pos)
-        #         print(f"Drone {drone_id} moving from {current_pos} to {target_pos} with vector {movement_vector}")
-        #         unit_movement_vector = tuple(v / math.dist(current_pos, target_pos) if math.dist(current_pos, target_pos) > 1 else v for v in movement_vector)
-        #         print(f"  Unit movement vector: {unit_movement_vector}")
-        #         movement_vectors[drone_id] = unit_movement_vector
-        #     else:
-        #         movement_vectors[drone_id] = (0.0, 0.0, 0.0)  # No movement needed or no current position
-        # return movement_vectors

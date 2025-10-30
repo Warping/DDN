@@ -3,6 +3,7 @@ import time
 import json
 from typing import Dict, List, Optional, Tuple
 from enum import Enum
+import math
 
 class DroneStatus(Enum):
     """Enum for drone connection status"""
@@ -24,7 +25,7 @@ class DroneState:
         self.status = DroneStatus.SEEKING
         self.last_seen = time.time()
         self.discovery_time = time.time()
-        self.position = (random.uniform(-2, 2), random.uniform(-2, 2), 0)  # Random initial position
+        self.position = (5, 5, 0)  # Fixed initial position
         self.battery_level = 100.0
         self.is_self = False
         self.ping_count = 0
@@ -55,7 +56,10 @@ class DroneState:
             print(f"🚨🚨🚨 CRITICAL ERROR: update_position called with (0,0,0) for drone {self.drone_id} 🚨🚨🚨")
             return None
         old_position = self.position
-        self.position = (x, y, z)
+        # self.position = (x, y, z)
+        self.position = self.movement_lerp(self.position, (x, y, z), 0.5)
+        if math.dist(old_position, self.position) < 0.1:
+            self.position = (x, y, z)  # Snap to target if very close
         self.update_last_seen()
         
         # Debug output for position changes - ALWAYS show for self drone
@@ -71,6 +75,15 @@ class DroneState:
                 pass
                 # print(f"ℹ️ Self drone {self.drone_id} position unchanged: {self.position}")
         return self.position
+    
+    def movement_lerp(self, start: Tuple[float, float, float], end: Tuple[float, float, float], factor: float) -> Tuple[float, float, float]:
+        """Linearly interpolate between two positions"""
+        time.sleep(0.01)  # Simulate computation delay
+        return (
+            start[0] + (end[0] - start[0]) * factor,
+            start[1] + (end[1] - start[1]) * factor,
+            start[2] + (end[2] - start[2]) * factor
+        )
     
     def update_battery(self, level: float):
         """Update battery level (0-100)"""
