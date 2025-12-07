@@ -16,12 +16,15 @@ import time
 from controllers.enhanced_state_controller import EnhancedStateController
 from core.drone_state import DroneStatus
 from controllers.movement_state_controller import MovementStateController
+import core.robot as robot
 
 from matplotlib import pyplot as plt
 from matplotlib.lines import Line2D
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 import numpy as np
 import threading
+
+drone_hw = robot.Robot()
 
 
 def main(visualize=False):
@@ -45,6 +48,10 @@ def main(visualize=False):
     # Check for quiet flag
     if len(args) > 1 and args[1] == "--verbose":
         quiet_mode = False
+        
+    print("🤖 Initializing robotic drone interface...")
+    drone_hw.stop()
+    time.sleep(1)  # Give some time to ensure robot is stopped
     
     print(f"🚁 Starting drone {drone_id if drone_id else 'with random ID'}...")
     
@@ -132,8 +139,12 @@ def main(visualize=False):
                     was_master_last_frame = True
                 elif not is_master:
                     was_master_last_frame = False
-                    
-            time.sleep(0.001)  # Small delay to prevent high CPU usage
+            
+            # Move robotic drone (simulated)
+            new_pos = controller.drone_network.self_drone.position
+            new_pos_xy = (new_pos[0], new_pos[1])
+            drone_hw.run(new_pos_xy)
+            # time.sleep(0.001)  # Small delay to prevent high CPU usage
             
     except KeyboardInterrupt:
         print(f"\n🛑 Stopping drone {controller.drone_network.get_self_id()}")
@@ -147,6 +158,8 @@ def main(visualize=False):
     finally:
         if visualization_initialized:
             close_visualization()
+        drone_hw.stop()
+        drone_hw.cleanup()
         sys.exit(1)
         
 # Global variables for visualization
@@ -369,8 +382,14 @@ def run_visualization(network_state=None):
             import traceback
             traceback.print_exc()
     
-
-if __name__ == "__main__":
-    # Check for visualization flag
-    visualize = "--visualize" in sys.argv or "-v" in sys.argv
-    main(visualize=visualize)
+try:
+    if __name__ == "__main__":
+        # Check for visualization flag
+        visualize = "--visualize" in sys.argv or "-v" in sys.argv
+        main(visualize=visualize)
+except Exception as e:
+    print(f"❌ Fatal error in main: {e}")
+print("🤖 Stopping robotic drone interface...")
+drone_hw.stop()
+drone_hw.cleanup()
+    

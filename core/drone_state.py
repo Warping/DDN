@@ -25,7 +25,7 @@ class DroneState:
         self.status = DroneStatus.SEEKING
         self.last_seen = time.time()
         self.discovery_time = time.time()
-        self.position = (5, 5, 0)  # Fixed initial position
+        self.position = (10, 10, 0)  # Fixed initial position
         self.battery_level = 100.0
         self.is_self = False
         self.ping_count = 0
@@ -52,14 +52,14 @@ class DroneState:
     
     def update_position(self, x: float, y: float, z: float) -> Optional[Tuple[float, float, float]]:
         """Update drone position coordinates"""
-        if (x, y, z) == (0.0, 0.0, 0.0):
-            print(f"🚨🚨🚨 CRITICAL ERROR: update_position called with (0,0,0) for drone {self.drone_id} 🚨🚨🚨")
-            return None
+        # if (x, y, z) == (0.0, 0.0, 0.0):
+        #     print(f"🚨🚨🚨 CRITICAL ERROR: update_position called with (0,0,0) for drone {self.drone_id} 🚨🚨🚨")
+        #     return None
         old_position = self.position
-        # self.position = (x, y, z)
-        self.position = self.movement_lerp(self.position, (x, y, z), 0.5)
-        if math.dist(old_position, self.position) < 0.1:
-            self.position = (x, y, z)  # Snap to target if very close
+        self.position = (x, y, z)
+        # self.position = self.movement_lerp(self.position, (x, y, z), 0.5)
+        # if math.dist(old_position, self.position) < 0.1:
+        #     self.position = (x, y, z)  # Snap to target if very close
         self.update_last_seen()
         
         # Debug output for position changes - ALWAYS show for self drone

@@ -33,7 +33,7 @@ class BroadcastHandler:
     
     
     # This initialisation is executed when the program is started
-    def __init__(self, configpath="../.reticulum_config"):
+    def __init__(self, configpath=".reticulum_config"):
         # We must first initialise Reticulum
         self.packet_buffer = []
         _ = RNS.Reticulum(configpath)
